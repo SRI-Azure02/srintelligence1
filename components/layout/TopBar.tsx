@@ -24,7 +24,7 @@ function UserMenu() {
         style={{ color: "var(--text-secondary)" }}
       >
         <User size={15} />
-        <span>Harshad</span>
+        <span>{process.env.NEXT_PUBLIC_USER_DISPLAY_NAME ?? "User"}</span>
         <ChevronDown size={13} style={{ opacity: 0.5 }} />
       </button>
 
@@ -39,10 +39,10 @@ function UserMenu() {
         >
           <div className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
             <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-              Harshad Chiddarwar
+              Anonymous
             </p>
             <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-              harshad@sr.com
+              anonymous
             </p>
           </div>
           <button

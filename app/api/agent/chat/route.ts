@@ -7,11 +7,64 @@ import {
   getDefaultSemanticView,
   getSemanticViewById,
 } from '../../../../src/lib/snowflake/semantic-discovery';
-import type { DispatchEvent } from '../../../../src/types/agent';
+import type { ConversationMessage, DispatchEvent, SemanticViewRef } from '../../../../src/types/agent';
+import type { UserPreferences } from '../../../../src/types/user';
+
+// ---------------------------------------------------------------------------
+// restoreContext — reconstruct a live ExecutionContext from stored data.
+//
+// After Next.js HMR re-evaluates this module, the ExecutionContext class
+// reference here points to the NEW prototype, while objects retrieved from the
+// session store still carry the OLD prototype (from the previous evaluation).
+// Calling `instanceof ExecutionContext` detects this mismatch: if it returns
+// false the stored object is a plain data bag from an old evaluation.
+//
+// In that case we construct a fresh ExecutionContext (new prototype, latest
+// method implementations) and transfer the plain-data fields that matter for
+// conversation continuity.  The Map-based intermediateResults is dropped
+// intentionally — it only holds within-session ML agent results that are too
+// expensive to deserialize safely and are not needed for Cortex Analyst context.
+// ---------------------------------------------------------------------------
+function restoreContext(
+  raw: Record<string, unknown>,
+  sessionId: string,
+  userId: string,
+  userRole: string,
+): ExecutionContext {
+  const stored = raw as {
+    sessionId?: string;
+    userId?: string;
+    userRole?: string;
+    semanticView?: SemanticViewRef;
+    availableSemanticViews?: SemanticViewRef[];
+    userPreferences?: UserPreferences;
+    conversationHistory?: ConversationMessage[];
+    bypassCache?: boolean;
+    metadata?: Record<string, unknown>;
+  };
+
+  const ctx = new ExecutionContext({
+    sessionId: stored.sessionId ?? sessionId,
+    userId:    stored.userId    ?? userId,
+    userRole:  stored.userRole  ?? userRole,
+    semanticView:           stored.semanticView,
+    availableSemanticViews: stored.availableSemanticViews ?? [],
+    userPreferences:        stored.userPreferences,
+    metadata:               stored.metadata,
+  });
+
+  // Conversation history is plain-data (ConversationMessage[]) — safe to copy.
+  if (Array.isArray(stored.conversationHistory)) {
+    ctx.conversationHistory = stored.conversationHistory;
+  }
+  ctx.bypassCache = stored.bypassCache ?? false;
+
+  return ctx;
+}
 
 // Helper: extract auth headers with defaults
 function extractAuth(request: Request): { userId: string; userRole: string } {
-  const userId = request.headers.get('x-user-id') ?? 'harshad@sr.com';
+  const userId = request.headers.get('x-user-id') ?? 'anonymous';
   const userRole = request.headers.get('x-user-role') ?? 'APP_SVC_ROLE';
   return { userId, userRole };
 }
@@ -51,11 +104,19 @@ export async function POST(request: Request): Promise<Response> {
 
   const sessionId = body.sessionId ?? randomUUID();
 
-  // Load or create ExecutionContext
+  // Load or create ExecutionContext.
+  // `instanceof` check guards against the HMR stale-prototype case: when the
+  // SessionStore singleton survives HMR but the stored object's prototype is
+  // from the previous module evaluation, `instanceof ExecutionContext` returns
+  // false. restoreContext() then constructs a fresh instance (current prototype,
+  // latest method implementations) and copies the plain-data fields across so
+  // conversation history is preserved even across hot-reloads.
   const stored = sessionStore.get(userId, sessionId);
-  const context: ExecutionContext = stored
-    ? (stored.context as unknown as ExecutionContext)
-    : new ExecutionContext({ sessionId, userId, userRole });
+  const context: ExecutionContext = !stored
+    ? new ExecutionContext({ sessionId, userId, userRole })
+    : stored.context instanceof ExecutionContext
+      ? (stored.context as unknown as ExecutionContext)
+      : restoreContext(stored.context, sessionId, userId, userRole);
 
   // Resolve semantic view
   // Note: ExecutionContext defaults semanticView to { fullyQualifiedName: '' }, so we must

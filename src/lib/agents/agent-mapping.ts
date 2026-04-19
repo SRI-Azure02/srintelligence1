@@ -42,13 +42,23 @@ export interface AgentRoute {
 }
 
 // ---------------------------------------------------------------------------
+// Database / schema constants
+// ---------------------------------------------------------------------------
+
+const _DB  = process.env.SNOWFLAKE_DATABASE  ?? 'CORTEX_TESTING';
+const _SCH = process.env.SNOWFLAKE_SCHEMA    ?? 'PUBLIC';
+const _ML  = process.env.SNOWFLAKE_ML_SCHEMA ?? 'ML';
+const _NS  = `${_DB}.${_SCH}`;
+const _ML_NS = `${_DB}.${_ML}`;
+
+// ---------------------------------------------------------------------------
 // Named agent references
 // ---------------------------------------------------------------------------
 
-const FORECAST_AGENT = 'CORTEX_TESTING.ML.SRI_FORECAST_AGENT';
-const CLUSTERING_AGENT = 'CORTEX_TESTING.ML.SRI_CLUSTERING_AGENT';
-const META_TREE_AGENT = 'CORTEX_TESTING.ML.SRI_META_TREE';
-const CAUSAL_AGENT = 'CORTEX_TESTING.ML.SRI_CAUSAL_INFERENCE_AGENT';
+const FORECAST_AGENT    = `${_ML_NS}.SRI_FORECAST_AGENT`;
+const CLUSTERING_AGENT  = `${_ML_NS}.SRI_CLUSTERING_AGENT`;
+const META_TREE_AGENT   = `${_ML_NS}.SRI_META_TREE`;
+const CAUSAL_AGENT      = `${_ML_NS}.SRI_CAUSAL_INFERENCE_AGENT`;
 
 // ---------------------------------------------------------------------------
 // The map
@@ -460,8 +470,8 @@ export function enrichMessage(
               .sort(([a], [b]) => Number(a) - Number(b))
               .map(([cidStr, v]) => {
                 const filter = recordIdCol
-                  ? `${recordIdCol} IN (SELECT RECORD_ID FROM CORTEX_TESTING.PUBLIC.CLUSTERING_RESULTS WHERE CLUSTER_ID = ${cidStr}${runIdFilter})`
-                  : `RECORD_ID IN (SELECT RECORD_ID FROM CORTEX_TESTING.PUBLIC.CLUSTERING_RESULTS WHERE CLUSTER_ID = ${cidStr}${runIdFilter})`;
+                  ? `${recordIdCol} IN (SELECT RECORD_ID FROM ${_NS}.CLUSTERING_RESULTS WHERE CLUSTER_ID = ${cidStr}${runIdFilter})`
+                  : `RECORD_ID IN (SELECT RECORD_ID FROM ${_NS}.CLUSTERING_RESULTS WHERE CLUSTER_ID = ${cidStr}${runIdFilter})`;
                 return (
                   `  Segment ${cidStr} = Cluster ${cidStr} — ${v.label} (${v.count} ${entityDesc}):\n` +
                   `    SQL filter: ${filter}`
@@ -470,8 +480,8 @@ export function enrichMessage(
               .join('\n')
           : Array.from({ length: nClusters }, (_, i) => {
               const filter = recordIdCol
-                ? `${recordIdCol} IN (SELECT RECORD_ID FROM CORTEX_TESTING.PUBLIC.CLUSTERING_RESULTS WHERE CLUSTER_ID = ${i}${runIdFilter})`
-                : `RECORD_ID IN (SELECT RECORD_ID FROM CORTEX_TESTING.PUBLIC.CLUSTERING_RESULTS WHERE CLUSTER_ID = ${i}${runIdFilter})`;
+                ? `${recordIdCol} IN (SELECT RECORD_ID FROM ${_NS}.CLUSTERING_RESULTS WHERE CLUSTER_ID = ${i}${runIdFilter})`
+                : `RECORD_ID IN (SELECT RECORD_ID FROM ${_NS}.CLUSTERING_RESULTS WHERE CLUSTER_ID = ${i}${runIdFilter})`;
               return `  Segment ${i} = Cluster ${i}:\n    SQL filter: ${filter}`;
             }).join('\n');
 
@@ -479,7 +489,7 @@ export function enrichMessage(
           `\n\n[CLUSTER CONTEXT — REQUIRED:\n` +
           `The cohort was previously segmented into ${nClusters} groups via ${algorithm} clustering by ${entityDesc}.\n` +
           `When the user refers to "segment N", "cluster N", or "group N", resolve it using the mapping below.\n` +
-          `CLUSTERING_RESULTS is in CORTEX_TESTING.PUBLIC (columns: RECORD_ID VARCHAR, CLUSTER_ID INT, CLUSTER_LABEL VARCHAR).\n\n` +
+          `CLUSTERING_RESULTS is in ${_NS} (columns: RECORD_ID VARCHAR, CLUSTER_ID INT, CLUSTER_LABEL VARCHAR).\n\n` +
           `${segmentLines}\n\n` +
           `Use the SQL filter shown above to scope the causal analysis to the requested segment.\n` +
           `If no specific segment is requested, run the analysis on the full clustered population.\n` +
@@ -509,6 +519,36 @@ export function enrichMessage(
         parts.push(`\n[Drivers from prior step: ${JSON.stringify(opts.priorData['drivers']).slice(0, 500)}]`);
       }
       break;
+
+    case 'MTREE': {
+      // MTree agent: inject prior analyst cohort SQL so it can scope the
+      // decision-tree to the same population; also inject cluster context
+      // (labels + segment counts) when available so the agent can run
+      // separate trees per segment.
+      if (opts.priorSQL) {
+        parts.push(
+          `\n\n[COHORT CONTEXT:\n` +
+          `The following SQL defines the cohort of interest (from a prior analyst query).\n` +
+          `Scope your decision-tree analysis to this cohort:\n\`\`\`sql\n${opts.priorSQL}\n\`\`\`\n]`,
+        );
+      }
+      if (opts.clusterInfo) {
+        const { nClusters, algorithm } = opts.clusterInfo;
+        const summaryLines = opts.clusterSummary
+          ? Object.entries(opts.clusterSummary)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([cid, { label, count }]) => `  Cluster ${cid} — ${label} (${count} records)`)
+              .join('\n')
+          : Array.from({ length: nClusters }, (_, i) => `  Cluster ${i}`).join('\n');
+        parts.push(
+          `\n\n[CLUSTER CONTEXT:\n` +
+          `The cohort was previously segmented into ${nClusters} clusters via ${algorithm} clustering:\n` +
+          `${summaryLines}\n` +
+          `If the user asks about a specific segment, scope the decision-tree to that cluster.]`,
+        );
+      }
+      break;
+    }
 
     default:
       break;

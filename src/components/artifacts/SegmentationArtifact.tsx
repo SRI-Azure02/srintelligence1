@@ -3347,11 +3347,10 @@ function FeatureWeightsCard({ weights, method }: { weights: Record<string, numbe
 interface MembershipTableProps {
   members: MemberRecord[];
   segmentNames: Record<number, string>;
-  onDownloadCSV: () => void;
   onFullscreen: () => void;
 }
 
-function MembershipTable({ members, segmentNames, onDownloadCSV, onFullscreen }: MembershipTableProps) {
+function MembershipTable({ members, segmentNames, onFullscreen }: MembershipTableProps) {
   if (members.length === 0) return null;
 
   const headers = ["ID", "Name", "Segment", ...Object.keys(members[0]).filter((k) => !["id", "name", "cluster", "clusterName"].includes(k))];
@@ -3361,11 +3360,10 @@ function MembershipTable({ members, segmentNames, onDownloadCSV, onFullscreen }:
   const visibleMembers = members.slice(page * PAGE, page * PAGE + PAGE);
 
   return (
-    <div className="rounded-2xl p-5" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+    <div className="p-5" style={{ background: "var(--bg-secondary)" }}>
       <div className="flex items-center justify-between mb-3">
-        <SectionTitle icon={<Table2 size={15} />} title={`Segment Membership (${members.length.toLocaleString()} records)`} />
+        <span />
         <div className="flex items-center gap-2">
-          <DownloadButton label="CSV" onClick={onDownloadCSV} />
           <button
             onClick={onFullscreen}
             className="p-1.5 rounded-lg hover:bg-black/6 transition-colors"
@@ -3448,7 +3446,8 @@ interface Props {
 }
 
 export default function SegmentationArtifact({ artifact }: Props) {
-  const [fullscreen, setFullscreen] = useState<"pca" | "snake" | "heatmap" | "table" | null>(null);
+  const [fullscreen, setFullscreen] = useState<"pca" | "snake" | "table" | null>(null);
+  const [membershipCollapsed, setMembershipCollapsed] = useState(true);
   const pcaRef = useRef<HTMLDivElement>(null);
   const snakeRef = useRef<HTMLDivElement>(null);
 
@@ -3559,19 +3558,6 @@ export default function SegmentationArtifact({ artifact }: Props) {
   segments.forEach((s) => { segmentNames[s.id] = s.name; });
 
   // ── Download handlers ─────────────────────────────────────────────────────
-  const handleDownloadMembershipCSV = () => {
-    if (!membershipTable?.length) return;
-    const headers = ["ID", "Name", "Cluster", "ClusterName", ...Object.keys(membershipTable[0]).filter((k) => !["id", "name", "cluster", "clusterName"].includes(k))];
-    const rows = membershipTable.map((m) => [
-      String(m.id),
-      m.name ?? "",
-      m.cluster,
-      m.clusterName ?? segmentNames[m.cluster] ?? "",
-      ...headers.slice(4).map((h) => m[h] != null ? String(m[h]) : ""),
-    ]);
-    downloadCSV("segmentation_membership.csv", headers, rows);
-  };
-
   const handleDownloadSegmentCSV = () => {
     const headers = ["ID", "Name", "Size", "Pct", "Characteristics"];
     const rows = segments.map((s) => [s.id, s.name, s.size, `${s.pct.toFixed(1)}%`, s.characteristics.join("; ")]);
@@ -3643,26 +3629,6 @@ export default function SegmentationArtifact({ artifact }: Props) {
         downloadCSV("zscores_snake.csv", headers, rows);
       }} />
       <DownloadButton label="PPTX" onClick={() => exportSnakePlotToPptx(segments)} />
-    </div>
-  );
-
-  const heatmapDownloadActions = (
-    <div className="flex gap-2">
-      <DownloadButton label="CSV" onClick={() => {
-        const allKeys = Array.from(
-          new Set(segments.flatMap((s) => Object.keys(s.zScores ?? {})))
-        ).sort().slice(0, 16);
-        if (!allKeys.length) return;
-        const headers = ["Feature", ...segments.map((s) => s.name)];
-        const rows = allKeys.map((k) => [
-          k,
-          ...segments.map((s) => {
-            const z = (s.zScores ?? {})[k];
-            return z != null ? z.toFixed(3) : "";
-          }),
-        ]);
-        downloadCSV("zscores_heatmap.csv", headers, rows);
-      }} />
     </div>
   );
 
@@ -3830,48 +3796,36 @@ export default function SegmentationArtifact({ artifact }: Props) {
         </div>
       )}
 
-      {/* 8. Z-Score Heatmap */}
-      {hasZScores && (
-        <div className="rounded-2xl p-5" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-          <div className="flex items-center justify-between mb-3">
-            <SectionTitle icon={<BarChart2 size={15} />} title="Z-Score Heatmap" />
-            <div className="flex items-center gap-2">
-              {heatmapDownloadActions}
-              <button
-                onClick={() => setFullscreen("heatmap")}
-                className="p-1.5 rounded-lg hover:bg-black/6 transition-colors"
-                style={{ color: "var(--text-muted)" }}
-                title="Fullscreen"
-              >
-                <Maximize2 size={14} />
-              </button>
-            </div>
-          </div>
-          <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
-            Cells show the z-score for each segment × feature pair. Green = above average, red = below average, white = near mean.
-          </p>
-          <ZScoreHeatmap segments={segments} />
-        </div>
-      )}
-
       {/* 9. Caveats */}
       {caveats && caveats.length > 0 && <CaveatsCard caveats={caveats} />}
 
-      {/* 10. Membership Table */}
+      {/* 10. Membership Table (collapsible — collapsed by default) */}
       {hasMembership && (
-        <MembershipTable
-          members={membershipTable!}
-          segmentNames={segmentNames}
-          onDownloadCSV={handleDownloadMembershipCSV}
-          onFullscreen={() => setFullscreen("table")}
-        />
+        <div className="rounded-2xl" style={{ border: "1px solid var(--border)" }}>
+          <button
+            onClick={() => setMembershipCollapsed((c) => !c)}
+            className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-black/4 transition-colors rounded-2xl"
+            style={{ background: "var(--bg-secondary)" }}
+          >
+            <SectionTitle icon={<Table2 size={15} />} title={`Segment Membership (${membershipTable!.length.toLocaleString()} records)`} />
+            <span className="text-xs ml-3" style={{ color: "var(--text-muted)" }}>
+              {membershipCollapsed ? "▸ Show" : "▾ Hide"}
+            </span>
+          </button>
+          {!membershipCollapsed && (
+            <MembershipTable
+              members={membershipTable!}
+              segmentNames={segmentNames}
+              onFullscreen={() => setFullscreen("table")}
+            />
+          )}
+        </div>
       )}
 
       {/* 9. Download bar */}
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>Export:</span>
-        <DownloadButton label="Download segment membership file. CSV" onClick={handleDownloadSegmentCSV} />
-        {hasMembership && <DownloadButton label="Membership CSV" onClick={handleDownloadMembershipCSV} />}
+        <DownloadButton label="Segment CSV" onClick={handleDownloadSegmentCSV} />
       </div>
 
       {/* ── Fullscreen Overlays ─────────────────────────────────────────────── */}
@@ -3915,28 +3869,14 @@ export default function SegmentationArtifact({ artifact }: Props) {
         </FullscreenOverlay>
       )}
 
-      {fullscreen === "heatmap" && hasZScores && (
-        <FullscreenOverlay
-          title="Z-Score Heatmap"
-          onClose={() => setFullscreen(null)}
-          actions={heatmapDownloadActions}
-        >
-          <div style={{ overflowY: "auto", maxHeight: "calc(100vh - 180px)" }}>
-            <ZScoreHeatmap segments={segments} />
-          </div>
-        </FullscreenOverlay>
-      )}
-
       {fullscreen === "table" && hasMembership && (
         <FullscreenOverlay
           title={`Segment Membership (${membershipTable!.length.toLocaleString()} records)`}
           onClose={() => setFullscreen(null)}
-          actions={<DownloadButton label="CSV" onClick={handleDownloadMembershipCSV} />}
         >
           <MembershipTable
             members={membershipTable!}
             segmentNames={segmentNames}
-            onDownloadCSV={handleDownloadMembershipCSV}
             onFullscreen={() => {}}
           />
         </FullscreenOverlay>

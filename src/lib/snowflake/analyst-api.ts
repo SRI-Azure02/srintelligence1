@@ -9,6 +9,7 @@
  */
 
 import { getAuthManager } from './auth';
+import { normalizeCortexSQL } from './sql-normalizer';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -320,6 +321,14 @@ async function parseSSEStream(response: Response, signal?: AbortSignal): Promise
 }
 
 // ---------------------------------------------------------------------------
+// SQL value normalizer
+// ---------------------------------------------------------------------------
+
+// normalizeGeneratedSql is now provided by the shared sql-normalizer module.
+// Alias kept for readability at the call site.
+const normalizeGeneratedSql = normalizeCortexSQL;
+
+// ---------------------------------------------------------------------------
 // Non-streaming JSON response extractor
 // ---------------------------------------------------------------------------
 
@@ -353,6 +362,17 @@ function extractFromJsonResponse(json: Record<string, unknown>): AnalystResponse
 
   if (!sql && text) {
     sql = extractSqlFromText(text) ?? undefined;
+  }
+
+  if (sql) {
+    const rawSql = sql;
+    sql = normalizeGeneratedSql(sql);
+    if (sql !== rawSql) {
+      console.log('[AnalystAPI] SQL normalised. Before:\n', rawSql);
+      console.log('[AnalystAPI] SQL normalised. After:\n', sql);
+    } else {
+      console.log('[AnalystAPI] SQL (no normalization applied):\n', sql);
+    }
   }
 
   const data = extractJsonBlock(text);

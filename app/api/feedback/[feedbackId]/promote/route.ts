@@ -1,7 +1,7 @@
 import { feedbackService } from '../../../../../src/lib/feedback/feedback-service';
 
 function extractAuth(request: Request): { userId: string; userRole: string } {
-  const userId = request.headers.get('x-user-id') ?? 'harshad@sr.com';
+  const userId = request.headers.get('x-user-id') ?? 'anonymous';
   const userRole = request.headers.get('x-user-role') ?? 'APP_SVC_ROLE';
   return { userId, userRole };
 }

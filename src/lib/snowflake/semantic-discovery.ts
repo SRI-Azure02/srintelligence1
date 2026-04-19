@@ -79,12 +79,16 @@ function rowToSemanticViewRef(row: Record<string, unknown>): SemanticViewRef {
   };
 }
 
+const _SF_DB  = process.env.SNOWFLAKE_DATABASE  ?? 'CORTEX_TESTING';
+const _SF_SCH = process.env.SNOWFLAKE_SCHEMA    ?? 'PUBLIC';
+const _SF_NS  = `${_SF_DB}.${_SF_SCH}`;
+
 /** Hard-coded fallback when the registry table has not yet been created. */
 const FALLBACK_VIEW: SemanticViewRef = {
   id: 'cortex_testcase',
   displayName: 'Analytics',
   description: 'Rx claims, drug reference, physicians & plan data',
-  fullyQualifiedName: 'CORTEX_TESTING.PUBLIC.CORTEX_TESTCASE',
+  fullyQualifiedName: `${_SF_NS}.CORTEX_TESTCASE`,
   allowedRoles: [],
   isDefault: true,
   tags: [],
@@ -93,7 +97,7 @@ const FALLBACK_VIEW: SemanticViewRef = {
 async function loadViewsFromSnowflake(userRole: string): Promise<SemanticViewRef[]> {
   const sql = `
     SELECT *
-    FROM CORTEX_TESTING.PUBLIC.SEMANTIC_VIEW_REGISTRY
+    FROM ${_SF_NS}.SEMANTIC_VIEW_REGISTRY
     WHERE is_active = TRUE
     ORDER BY display_name ASC
   `;
@@ -181,7 +185,7 @@ export async function getSemanticViewById(
   const escapedId = viewId.replace(/'/g, "''");
   const sql = `
     SELECT *
-    FROM CORTEX_TESTING.PUBLIC.SEMANTIC_VIEW_REGISTRY
+    FROM ${_SF_NS}.SEMANTIC_VIEW_REGISTRY
     WHERE view_id = '${escapedId}'
       AND is_active = TRUE
     LIMIT 1

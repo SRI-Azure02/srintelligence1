@@ -22,7 +22,7 @@ import { SNOWFLAKE_ROLE } from './cortex-agent-api';
 // Constants
 // ---------------------------------------------------------------------------
 
-const PERSIST_TABLE = 'CORTEX_TESTING.PUBLIC.CLUSTERING_RESULTS';
+const PERSIST_TABLE = `${process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING'}.${process.env.SNOWFLAKE_SCHEMA ?? 'PUBLIC'}.CLUSTERING_RESULTS`;
 
 /** Number of rows per INSERT batch — keeps the statement below Snowflake limits */
 const BATCH_SIZE = 500;

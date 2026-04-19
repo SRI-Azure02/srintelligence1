@@ -250,15 +250,25 @@ function buildAgentMessage(id: string, resp: FormattedResponse): { msg: ChatMess
   const analystArtifact = resp.artifacts.find((a) => a.intent === "ANALYST");
   const firstArtifact   = resp.artifacts[0];
 
+  // For PIPELINE responses the top-level intent is 'PIPELINE' but the
+  // structured data lives in the last step's artifact.  Resolve the
+  // "effective intent" to the artifact's own intent so that the correct
+  // specialised renderer is used (SegmentationArtifact, ForecastArtifact, etc.)
+  const effectiveIntent = resp.intent === 'PIPELINE'
+    ? (firstArtifact?.intent ?? resp.intent)
+    : resp.intent;
+
   // Detect forecast intents — use structured rendering instead of raw markdown
-  const isForecast = /^FORECAST_/.test(resp.intent);
-  // Detect clustering intents — use SegmentationArtifact instead of plain markdown
-  const isCluster = /^CLUSTER/.test(resp.intent);
+  const isForecast = /^FORECAST_/.test(effectiveIntent);
+  // Detect clustering intents — use SegmentationArtifact instead of plain markdown.
+  // CLUSTER_COMPARE is excluded: the named agent returns a markdown comparison
+  // narrative (not UDTF rows), so it renders as plain text / table.
+  const isCluster = /^CLUSTER/.test(effectiveIntent) && effectiveIntent !== 'CLUSTER_COMPARE';
   // Detect mTree intent — MTreeArtifact handles all rendering; suppress raw narrative
-  const isMTree = resp.intent === 'MTREE';
+  const isMTree = effectiveIntent === 'MTREE';
   // Detect causal intent — CausalNarrativeReport handles all rendering; suppress raw narrative.
   // Causal agents emit CAUSAL_AUTO, CAUSAL_PIPELINE, CAUSAL_NARRATIVE, CAUSAL_CONTRIBUTION, etc.
-  const isCausal = /^CAUSAL/.test(resp.intent);
+  const isCausal = /^CAUSAL/.test(effectiveIntent);
 
   let tableData  = (!isForecast && !isCluster && !isCausal && analystArtifact) ? artifactToTableData(analystArtifact)
                  : (!isForecast && !isCluster && !isCausal && firstArtifact)   ? artifactToTableData(firstArtifact)

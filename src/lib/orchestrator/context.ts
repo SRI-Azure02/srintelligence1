@@ -119,6 +119,14 @@ export class ExecutionContext implements AgentContext {
   storeResult(key: string, result: AgentResult): void {
     this.intermediateResults.set(key, result);
     this.priorResults.set(key, result);
+    // Maintain a fixed "latest" pointer per intent so getLastXxx() helpers
+    // always return the most-recent result rather than the first (Map iterates
+    // in insertion order, which would return the oldest entry otherwise).
+    const artifactIntent = result.artifact?.intent;
+    if (artifactIntent) {
+      this.intermediateResults.set(`${artifactIntent}_latest`, result);
+      this.priorResults.set(`${artifactIntent}_latest`, result);
+    }
   }
 
   getResult(key: string): AgentResult | undefined {
@@ -129,20 +137,14 @@ export class ExecutionContext implements AgentContext {
   // Convenience helpers for downstream agents
   // ---------------------------------------------------------------------------
 
-  /** Returns the SQL from the last ANALYST assistant message in history. */
+  /** Returns the SQL from the last ANALYST result. */
   getLastAnalystSQL(): string | undefined {
-    for (let i = this.conversationHistory.length - 1; i >= 0; i--) {
-      const msg = this.conversationHistory[i];
-      if (msg.role === 'assistant' && msg.intent === 'ANALYST' && msg.artifactId) {
-        // Try intermediateResults for the artifact
-        for (const [, result] of this.intermediateResults) {
-          if (result.artifact?.intent === 'ANALYST' && result.artifact.sql) {
-            return result.artifact.sql;
-          }
-        }
-      }
+    // Check the fixed "latest" pointer first (always the most-recent ANALYST call).
+    const latest = this.intermediateResults.get('ANALYST_latest');
+    if (latest?.artifact?.intent === 'ANALYST' && latest.artifact.sql) {
+      return latest.artifact.sql;
     }
-    // Fallback: scan intermediateResults directly
+    // Fallback: scan intermediateResults (insertion order = oldest first).
     for (const [, result] of this.intermediateResults) {
       if (result.artifact?.intent === 'ANALYST' && result.artifact.sql) {
         return result.artifact.sql;
@@ -153,10 +155,18 @@ export class ExecutionContext implements AgentContext {
 
   /** Returns the columns from the last ANALYST result in intermediateResults. */
   getLastAnalystColumns(): string[] | undefined {
-    for (const [, result] of this.intermediateResults) {
+    // Check the fixed "latest" pointer first.
+    const latest = this.intermediateResults.get('ANALYST_latest');
+    if (latest?.artifact?.intent === 'ANALYST') {
+      const data = latest.artifact.data as Record<string, unknown> | undefined;
+      const headers = (data?.['results'] as { headers?: string[] } | undefined)?.headers;
+      if (Array.isArray(headers) && headers.length > 0) return headers;
+    }
+    // Fallback: scan intermediateResults.
+    for (const [key, result] of this.intermediateResults) {
+      if (key.endsWith('_latest')) continue; // skip pointer entries during scan
       if (result.artifact?.intent === 'ANALYST') {
         const data = result.artifact.data as Record<string, unknown> | undefined;
-        // Analyst data shape: { results: { headers: string[], rows: ... } }
         const headers = (data?.['results'] as { headers?: string[] } | undefined)?.headers;
         if (Array.isArray(headers) && headers.length > 0) return headers;
       }
@@ -170,7 +180,19 @@ export class ExecutionContext implements AgentContext {
    * prior analyst cohort without re-querying Cortex Analyst.
    */
   getLastAnalystResult(): { sql: string; columns: string[] } | undefined {
-    for (const [, result] of this.intermediateResults) {
+    // Check the fixed "latest" pointer first — this is always the most-recent
+    // ANALYST call, regardless of how many other agent results have been stored
+    // since (Map insertion order would otherwise return the oldest).
+    const latest = this.intermediateResults.get('ANALYST_latest');
+    if (latest?.artifact?.intent === 'ANALYST' && latest.artifact.sql) {
+      const data = latest.artifact.data as Record<string, unknown> | undefined;
+      const headers = (data?.['results'] as { headers?: string[] } | undefined)?.headers ?? [];
+      return { sql: latest.artifact.sql, columns: headers };
+    }
+    // Fallback: scan intermediateResults (oldest first — for sessions where
+    // storeResult was called before this fix was deployed).
+    for (const [key, result] of this.intermediateResults) {
+      if (key.endsWith('_latest')) continue;
       if (result.artifact?.intent === 'ANALYST' && result.artifact.sql) {
         const data = result.artifact.data as Record<string, unknown> | undefined;
         const headers = (data?.['results'] as { headers?: string[] } | undefined)?.headers ?? [];
@@ -183,12 +205,17 @@ export class ExecutionContext implements AgentContext {
   /**
    * Stores metadata about the most recent clustering run so that downstream
    * FORECAST / CAUSAL agents can reference cluster assignments.
+   *
+   * The optional `clusterSummary` maps each cluster ID (numeric) to its
+   * human-readable label and record count.  Downstream agents use this to
+   * build segment-scoped prompts without issuing an additional Snowflake query.
    */
   storeClusterMeta(meta: {
     nClusters: number;
     recordIdCol: string | undefined;
     algorithm: string;
     runId: string;
+    clusterSummary?: Record<number, { label: string; count: number }>;
   }): void {
     this.intermediateResults.set('CLUSTER_META_latest', {
       success: true,
@@ -216,6 +243,7 @@ export class ExecutionContext implements AgentContext {
     recordIdCol: string | undefined;
     algorithm: string;
     runId: string;
+    clusterSummary?: Record<number, { label: string; count: number }>;
   } | undefined {
     const entry = this.intermediateResults.get('CLUSTER_META_latest');
     if (!entry?.artifact?.data) return undefined;
@@ -224,6 +252,7 @@ export class ExecutionContext implements AgentContext {
       recordIdCol: string | undefined;
       algorithm: string;
       runId: string;
+      clusterSummary?: Record<number, { label: string; count: number }>;
     };
   }
 

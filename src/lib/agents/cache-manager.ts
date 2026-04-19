@@ -63,7 +63,19 @@ export class CacheManager {
     // Use globalThis so the singleton survives Next.js HMR module re-evaluation.
     // Without this, every hot-reload wipes the in-memory cache and every query
     // becomes a cold-path Cortex Analyst call again.
-    const g = globalThis as typeof globalThis & { __sriCacheManager?: CacheManager };
+    //
+    // Cache isolation: keyed by process.pid so a true server restart (new PID)
+    // always starts with an empty cache, while HMR re-evaluations within the
+    // same process correctly reuse the existing cache.
+    const g = globalThis as typeof globalThis & {
+      __sriCacheManager?: CacheManager;
+      __sriCachePid?: number;
+    };
+    if (g.__sriCachePid !== process.pid) {
+      // New process — discard any stale cache from the previous run
+      g.__sriCacheManager = undefined;
+      g.__sriCachePid = process.pid;
+    }
     if (!g.__sriCacheManager) {
       g.__sriCacheManager = new CacheManager();
     }

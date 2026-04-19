@@ -13,8 +13,21 @@
  */
 
 import { randomUUID } from 'crypto';
+import Anthropic from '@anthropic-ai/sdk';
 import { callCortexAnalyst } from '../snowflake/analyst-api';
 import { executeSQL } from '../snowflake/sql-api';
+import { normalizeUserQuestion } from '../snowflake/sql-normalizer';
+
+// Lazy singleton — constructed on first use so the API key is read after
+// environment variables are loaded (Next.js App Router does not guarantee
+// env-var availability at module evaluation time for all edge cases).
+let _anthropicClient: Anthropic | null = null;
+function getAnthropicClient(): Anthropic {
+  if (!_anthropicClient) {
+    _anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return _anthropicClient;
+}
 import type {
   AgentInput,
   AgentResult,
@@ -112,10 +125,25 @@ export class AnalystAgent {
     }
 
     // ------------------------------------------------------------------
+    // Prior-query SQL anchor (must be resolved before the cache key so that
+    // follow-up questions with different prior contexts get distinct cache slots)
+    // ------------------------------------------------------------------
+    // Find the most recent assistant turn that produced SQL.  This is used below
+    // to inject filter-preservation context for follow-up questions.
+    const priorAssistantSql = [...input.conversationHistory]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.sql)?.sql ?? null;
+
+    // ------------------------------------------------------------------
     // Cache lookup
     // ------------------------------------------------------------------
     const cacheKey = `analyst:${input.userId}:${hashString(
-      input.message + input.semanticView.id + (input.userPreferences.userId ?? ''),
+      input.message +
+      input.semanticView.id +
+      (input.userPreferences.userId ?? '') +
+      // Include prior SQL so that the same follow-up question after different
+      // first queries gets its own distinct cache entry.
+      (priorAssistantSql ?? ''),
     )}`;
     const bypassCache = (input.extraContext?.bypassCache as boolean | undefined) ?? false;
 
@@ -160,7 +188,37 @@ export class AnalystAgent {
     // ------------------------------------------------------------------
     // Call Cortex Analyst / SRI_ANALYST_AGENT
     // ------------------------------------------------------------------
-    const question = input.message;
+    // Pre-process the question to substitute known brand aliases and indicator
+    // terms with their stored values before Cortex Analyst sees the text.
+    let question = normalizeUserQuestion(input.message);
+    if (question !== input.message) {
+      console.log('[AnalystAgent] Question normalised.\nBefore:', input.message);
+      console.log('[AnalystAgent] After:', question);
+    }
+
+    // ------------------------------------------------------------------
+    // Follow-up filter anchoring
+    //
+    // When the user asks a refinement question ("break this down by region",
+    // "now filter to Q1", "show the same for generics") Cortex Analyst tends
+    // to generate a fresh unconstrained query rather than preserving all of
+    // the WHERE / HAVING conditions from the prior turn.  We fix this by
+    // injecting the prior SQL directly into the question text so Cortex has
+    // an unambiguous instruction to keep every filter and only change the
+    // SELECT / GROUP BY as needed.
+    // ------------------------------------------------------------------
+    if (priorAssistantSql && isFollowUpQuestion(input.message)) {
+      question =
+        `${question}\n\n` +
+        `IMPORTANT — this is a follow-up to the previous query. ` +
+        `Preserve ALL filters (every WHERE condition and HAVING clause) from the prior query. ` +
+        `Only change the SELECT columns and GROUP BY as needed for the new question. ` +
+        `Do NOT drop any existing filter. ` +
+        `Return a row-level list of physicians (not just a single aggregate summary row) ` +
+        `with any requested grouping dimension added as an extra column.\n` +
+        `Prior query:\n${priorAssistantSql}`;
+      console.log('[AnalystAgent] Follow-up detected — prior SQL injected into question.');
+    }
 
     console.time('5a_ANALYST_REST_CALL');
     const analystResponse = await callCortexAnalyst({
@@ -224,29 +282,43 @@ export class AnalystAgent {
 
     // ------------------------------------------------------------------
     // Narrative enrichment via Claude Haiku
-    // The direct Cortex Analyst API returns a brief text explanation.
-    // If it's short and we have data, enrich it with key observations.
+    // Always generate a structured summary when the query returned data.
+    // Combine the Cortex Analyst explanation (which may be brief) with
+    // specific bullet-point observations derived from the actual row data.
     // ------------------------------------------------------------------
-    let narrative = analystResponse.text || undefined;
-    if (sqlRows.length > 0 && (!narrative || narrative.length < 300)) {
+    const cortexText = analystResponse.text || '';
+    let narrative: string | undefined = cortexText || undefined;
+
+    if (sqlRows.length > 0) {
       try {
-        const Anthropic = (await import('@anthropic-ai/sdk')).default;
-        const claudeClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-        const sampleRows = resultRows.slice(0, 5)
+        const claudeClient = getAnthropicClient();
+        // Include up to 15 rows so the model can spot patterns across the data.
+        const sampleRows = resultRows.slice(0, 15)
           .map((r) => sqlColumns.map((col, i) => `${col}: ${r[i]}`).join(', '))
           .join('\n');
+        const contextNote = cortexText
+          ? `Cortex Analyst explanation: "${cortexText}"\n\n`
+          : '';
         const resp = await claudeClient.messages.create({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 400,
+          max_tokens: 600,
           messages: [{
             role: 'user',
-            content: `Question: "${input.message}"\nColumns: ${sqlColumns.join(', ')}\nRow count: ${sqlRows.length}\nSample rows:\n${sampleRows}\n\nWrite 2-3 concise bullet points summarising key insights. Be specific with numbers.`,
+            content:
+              `${contextNote}` +
+              `Question: "${input.message}"\n` +
+              `Total rows returned: ${sqlRows.length}\n` +
+              `Columns: ${sqlColumns.join(', ')}\n` +
+              `Sample rows (up to 15):\n${sampleRows}\n\n` +
+              `Write a concise summary (3-5 bullet points) with specific numbers and key insights. ` +
+              `Highlight the top finding, any notable outliers, and what the numbers mean in context. ` +
+              `Be direct and specific — avoid filler phrases.`,
           }],
         });
         const block = resp.content[0];
         if (block.type === 'text') narrative = block.text;
       } catch {
-        // Non-blocking — fall back to Cortex Analyst text
+        // Non-blocking — fall back to Cortex Analyst text if enrichment fails
       }
     }
 
@@ -281,7 +353,14 @@ export class AnalystAgent {
     // Lineage + cache (non-blocking)
     // ------------------------------------------------------------------
     this.recordLineage(input, lineageId).catch(() => {});
-    if (!bypassCache) {
+
+    // Only cache results that returned actual rows — empty results may be caused
+    // by transient SQL normalization issues or stale Cortex inference and should
+    // always be retried so that a corrected normalizer can take effect.
+    const hasRows =
+      (primaryArtifact.data as { results?: { rows: unknown[] } } | null)
+        ?.results?.rows?.length ?? 0;
+    if (!bypassCache && sql && hasRows > 0) {
       this.storeInCache(cacheKey, result).catch(() => {});
     }
 
@@ -498,10 +577,20 @@ export class AnalystAgent {
   private buildConversationHistory(messages: ConversationMessage[]): AnalystMessage[] {
     return messages
       .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .map((m): AnalystMessage => ({
-        role: m.role === 'assistant' ? 'analyst' : 'user',
-        content: [{ type: 'text', text: m.content }],
-      }));
+      .map((m): AnalystMessage => {
+        const content: AnalystMessage['content'] = [{ type: 'text', text: m.content }];
+        // For analyst turns that produced SQL, include the SQL as a content block.
+        // Cortex Analyst uses this to understand which columns and tables the prior
+        // query touched, enabling accurate follow-up queries (e.g. "break that down
+        // by region" correctly references physician_state from the original query).
+        if (m.role === 'assistant' && m.sql) {
+          content.push({ type: 'sql', statement: m.sql });
+        }
+        return {
+          role: m.role === 'assistant' ? 'analyst' : 'user',
+          content,
+        };
+      });
   }
 
   private makeErrorResult(
@@ -544,6 +633,63 @@ export class AnalystAgent {
     const { CacheManager } = await import('./cache-manager');
     await CacheManager.getInstance().set(cacheKey, result);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Utility: detect follow-up / refinement questions
+//
+// A follow-up question references the prior result set rather than starting a
+// completely new analysis.  These are the patterns that reliably indicate the
+// user wants to refine / re-slice the same cohort:
+//
+//   Referential pronouns : "break THIS down", "filter THESE", "show THEM"
+//   Drill-down verbs     : "break down", "split by", "group by", "segment by"
+//   Continuation phrases : "same filter", "same criteria", "now show", "also show"
+//   Qualifier add-ons    : "only show", "narrow to", "filter to", "drill into"
+//
+// Deliberately excluded: questions that happen to contain "this" in a subject
+// clause ("What is this drug's share?") — those are matched only when "this"
+// directly precedes a drill-down verb or appears with one in the same clause.
+// ---------------------------------------------------------------------------
+
+function isFollowUpQuestion(message: string): boolean {
+  const q = message.trim();
+
+  // "break this/it down", "break down", "break it down by"
+  if (/\bbreak\s+(this\s+|it\s+|that\s+)?down\b/i.test(q)) return true;
+
+  // "broken down by", "breakdown by"
+  if (/\bbroken?\s+down\s+by\b|\bbreakdown\s+by\b/i.test(q)) return true;
+
+  // "split this/them/these by", "segment by", "group by", "divide by"
+  if (/\b(split|segment|divide)\s+(this|them|these|it)\s+by\b/i.test(q)) return true;
+  if (/\bgroup\s+(this|them|these|it|the\s+(?:results?|data|above))\s+by\b/i.test(q)) return true;
+
+  // "by [grouping dimension]" — short drill-down requests like "by region", "by state", "by specialty"
+  if (/\bby\s+(region|state|territory|specialty|market|channel|quarter|month|year|brand|plan|tier|geography|division|area|drug|product|segment|hcp|physician)\b/i.test(q)) return true;
+
+  // "show this/these by", "show them by"
+  if (/\bshow\s+(this|these|them|the\s+same|it)\s+by\b/i.test(q)) return true;
+
+  // "same [filters|criteria|conditions|cohort|group|set|physicians|analysis]"
+  if (/\bsame\s+(filter|criteria|condition|cohort|group|set|physician|analysis|result|data)/i.test(q)) return true;
+
+  // "now [show|filter|group|break|split|segment]" — clear continuation
+  if (/^\s*(?:now|also|additionally|next|then)\s+(show|filter|group|break|split|segment|list|give|can\s+you)/i.test(q)) return true;
+
+  // "filter these/this/them to", "narrow this/these", "restrict to", "limit to [the] same"
+  if (/\b(filter|narrow|restrict|limit)\s+(this|these|them|the\s+(?:results?|data|list|above))\b/i.test(q)) return true;
+
+  // Pronouns directly before "by" in a grouping context: "break THESE by region"
+  if (/\b(these|them|those)\s+by\b/i.test(q)) return true;
+
+  // "Can you break this down", "Could you show this by", "Show this broken down"
+  if (/\b(this|these|them)\s+(broken?\s+down|grouped?|split|segmented?|filtered?|divided?)\b/i.test(q)) return true;
+
+  // "add [a] region/state/specialty/column" — add dimension to existing result
+  if (/\badd\s+(a\s+)?(region|state|specialty|market|channel|column)\b/i.test(q)) return true;
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------

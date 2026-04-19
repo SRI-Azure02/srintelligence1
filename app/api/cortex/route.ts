@@ -1,13 +1,15 @@
 import { NextRequest } from "next/server";
+import { normalizeCortexSQL } from '@/src/lib/snowflake/sql-normalizer';
 
 // ── Snowflake config ──────────────────────────────────────────────────────────
 const ACCOUNT   = process.env.SNOWFLAKE_ACCOUNT!;   // e.g. hj98757.us-east-1
 const PAT       = process.env.SNOWFLAKE_PAT!;
 const WAREHOUSE = process.env.SNOWFLAKE_WAREHOUSE!;
-const DATABASE  = process.env.SNOWFLAKE_DATABASE!;
+const DATABASE  = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
+const SCHEMA    = process.env.SNOWFLAKE_SCHEMA    ?? 'PUBLIC';
 const BASE_URL  = `https://${ACCOUNT}.snowflakecomputing.com`;
 
-const SEMANTIC_VIEW = "CORTEX_TESTING.PUBLIC.CORTEX_TESTCASE";
+const SEMANTIC_VIEW = `${DATABASE}.${SCHEMA}.CORTEX_TESTCASE`;
 
 // ── Shared headers ────────────────────────────────────────────────────────────
 function sfHeaders() {
@@ -53,7 +55,7 @@ async function executeSQL(sql: string): Promise<{ headers: string[]; rows: (stri
       statement: sql,
       timeout: 60,
       database: DATABASE,
-      schema: "PUBLIC",
+      schema: SCHEMA,
       warehouse: WAREHOUSE,
       parameters: { MULTI_STATEMENT_COUNT: "0" },
     }),
@@ -115,18 +117,31 @@ function deriveChart(
   const { headers, rows } = tableData;
   if (!rows.length || headers.length < 2) return null;
 
-  // Suppress chart for entity/person lists (physicians, patients, etc.) — these
-  // produce meaningless high-cardinality bar charts rather than aggregated insights.
   const firstHeader = headers[0] ?? '';
+
+  // ── Suppress: entity / person lists ──────────────────────────────────────
+  // These produce meaningless high-cardinality bar charts rather than insights.
   const isEntityList = /first.?name|last.?name|physician|patient|doctor|hcp|npi|prescriber|provider/i.test(firstHeader);
   if (isEntityList) return null;
 
-  // Also suppress when many rows exist and there's no temporal aggregation dimension
-  // (suggests a raw entity dump, not a summary suitable for charting).
+  // ── Suppress: geographic / demographic aggregations ───────────────────────
+  // Region, state, specialty, plan-type breakdowns are best shown as tables.
+  // A bar chart only makes sense here when the user explicitly asks for one;
+  // auto-generating it produces an unexpected chart that wasn't requested.
+  const isGeographicOrDemographic = /region|state|territory|country|geography|specialty|plan.?type|payer|channel|segment|tier/i.test(firstHeader);
+  if (isGeographicOrDemographic) return null;
+
+  // ── Suppress: large non-temporal dumps ───────────────────────────────────
+  // High row-count results without a time column are raw entity dumps, not
+  // summaries suitable for charting.
   const hasTemporalCol = headers.some((h) =>
     /date|month|week|year|quarter|period|time/i.test(h)
   );
   if (rows.length > 30 && !hasTemporalCol) return null;
+
+  // ── Suppress: single-row results ─────────────────────────────────────────
+  // A single data point is not a meaningful chart.
+  if (rows.length === 1) return null;
 
   // First column = label, first numeric column = value
   const valueIdx = headers.findIndex(
@@ -180,14 +195,21 @@ export async function POST(req: NextRequest) {
     const sqlBlock        = content.find((c) => c.type === "sql");
     const suggestionsBlock = content.find((c) => c.type === "suggestions");
 
-    // ── Step 2: execute the SQL if present ───────────────────────────────────
+    // ── Step 2: normalise then execute the SQL if present ───────────────────
     let tableData: { headers: string[]; rows: (string | number)[][] } | null = null;
     let chartData: Array<{ name: string; value: number }> | null = null;
     let sqlError: string | null = null;
 
-    if (sqlBlock?.statement) {
+    const rawSql = sqlBlock?.statement ?? null;
+    const normalisedSql = rawSql ? normalizeCortexSQL(rawSql) : null;
+    if (normalisedSql && normalisedSql !== rawSql) {
+      console.log('[/api/cortex] SQL normalised.\nBefore:', rawSql);
+      console.log('[/api/cortex] After:', normalisedSql);
+    }
+
+    if (normalisedSql) {
       try {
-        tableData = await executeSQL(sqlBlock.statement);
+        tableData = await executeSQL(normalisedSql);
         chartData = deriveChart(tableData);
       } catch (err: unknown) {
         sqlError = err instanceof Error ? err.message : String(err);
@@ -202,7 +224,7 @@ export async function POST(req: NextRequest) {
 
     return Response.json({
       content: textBlock?.text ?? "Analysis complete.",
-      sql: sqlBlock?.statement ?? null,
+      sql: normalisedSql ?? null,
       sqlError,
       tableData,
       chartData,

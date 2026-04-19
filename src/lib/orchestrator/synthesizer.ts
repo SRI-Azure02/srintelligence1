@@ -57,13 +57,90 @@ export interface FormattedResponseLocal {
 // Per-intent follow-up templates
 // ---------------------------------------------------------------------------
 
-const CLUSTER_FOLLOW_UPS = [
-  'What are the key traits of cluster 1?',
-  'Show Z-scores for all clusters.',
-  'How many records are in each cluster?',
-  'Which cluster is highest value?',
-  'Export cluster assignments.',
-];
+/**
+ * Generate intelligent, result-aware follow-up suggestions for clustering intents.
+ * Parses the cluster narrative to extract algorithm, segment count, and per-segment
+ * top drivers so suggestions reference actual segments and metrics rather than
+ * canned generic questions.
+ */
+function buildClusterFollowUps(narrative: string | undefined): string[] {
+  // Parse segment lines: "- **Segment N** (X records, Y%) — top driver: **FEATURE** (Z=Z.ZZ)"
+  const segLineRe = /\*\*Segment (\d+)\*\*\s*\([\d,]+\s*records?,\s*([\d.]+)%\)(?:.*?top driver:\s*\*\*([^*]+)\*\*)?/gi;
+  const segments: Array<{ id: number; pct: number; topDriver?: string }> = [];
+
+  if (narrative) {
+    let m: RegExpExecArray | null;
+    while ((m = segLineRe.exec(narrative)) !== null) {
+      segments.push({
+        id: Number(m[1]),
+        pct: parseFloat(m[2]),
+        topDriver: m[3]?.trim(),
+      });
+    }
+  }
+
+  // Extract algorithm name from first line: "**KMEANS clustering** identified ..."
+  const algoMatch = narrative?.match(/\*\*([A-Z_]+)\s+clustering\*\*/i);
+  const algo = algoMatch ? algoMatch[1] : 'K-Means';
+
+  const nSeg = segments.length;
+
+  if (nSeg === 0) {
+    // Fallback when narrative couldn't be parsed
+    return [
+      'What are the key traits of each segment?',
+      'Run causal analysis on the top segment.',
+      'Forecast claims for the largest segment.',
+      'How do segments differ on prescribing behavior?',
+      'Which segment should be prioritized for outreach?',
+    ];
+  }
+
+  // Largest and smallest segments
+  const sorted = [...segments].sort((a, b) => b.pct - a.pct);
+  const largest  = sorted[0];
+  const smallest = sorted[sorted.length - 1];
+
+  // Segment with a notable top driver (Z-score shown in narrative)
+  const withDriver = segments.find(s => s.topDriver);
+
+  const followUps: string[] = [];
+
+  // 1. Describe key traits of the first segment (most likely what user wants)
+  followUps.push(
+    `What are the key traits of Segment ${segments[0].id}?`
+  );
+
+  // 2. Causal analysis targeted at the largest segment
+  followUps.push(
+    `Run causal analysis on physicians in Segment ${largest.id} (${largest.pct.toFixed(0)}% of population).`
+  );
+
+  // 3. Forecast for the most actionable segment
+  if (nSeg >= 2) {
+    followUps.push(
+      `Forecast Rx trends for Segment ${sorted[1].id} over the next 6 months.`
+    );
+  }
+
+  // 4. Compare two segments if we have at least 2
+  if (nSeg >= 2) {
+    followUps.push(
+      `Compare Segment ${largest.id} vs Segment ${smallest.id} on key metrics.`
+    );
+  }
+
+  // 5. Actionable targeting question
+  if (withDriver) {
+    followUps.push(
+      `Which segment has the highest ${withDriver.topDriver} and how should we engage them?`
+    );
+  } else {
+    followUps.push('Which segment should be prioritized for next best action?');
+  }
+
+  return followUps.slice(0, 5);
+}
 
 const CAUSAL_FOLLOW_UPS = [
   'Which driver had the largest impact?',
@@ -137,23 +214,12 @@ const FOLLOW_UPS: Record<AgentIntent, string[]> = {
     'Compare to the previous period.',
     'Which segments are underperforming?',
   ],
-  CLUSTER: CLUSTER_FOLLOW_UPS,
-  CLUSTER_GM: CLUSTER_FOLLOW_UPS,
-  CLUSTER_DBSCAN: [
-    'How many noise/outlier points were found?',
-    'Adjust the eps parameter and re-run.',
-    ...CLUSTER_FOLLOW_UPS.slice(0, 3),
-  ],
-  CLUSTER_HIERARCHICAL: [
-    'Can I see the dendrogram?',
-    'Change the linkage method to complete.',
-    ...CLUSTER_FOLLOW_UPS.slice(0, 3),
-  ],
-  CLUSTER_KMEANS: CLUSTER_FOLLOW_UPS,
-  CLUSTER_KMEDOIDS: [
-    'Which records are the medoids?',
-    ...CLUSTER_FOLLOW_UPS.slice(0, 4),
-  ],
+  CLUSTER: [],       // populated dynamically in generateSuggestedFollowUps
+  CLUSTER_GM: [],
+  CLUSTER_DBSCAN: [],
+  CLUSTER_HIERARCHICAL: [],
+  CLUSTER_KMEANS: [],
+  CLUSTER_KMEDOIDS: [],
   CLUSTER_COMPARE: [
     'Run the winning clustering algorithm.',
     'Show silhouette scores for all algorithms.',
@@ -226,10 +292,7 @@ export class ResponseSynthesizer {
     const artifacts = artifact ? [artifact] : [];
 
     const text = this.buildNarrative(result, intent);
-    const suggestedFollowUps = this.generateSuggestedFollowUps(
-      intent,
-      Array.isArray(artifact?.data) ? (artifact.data as Record<string, unknown>[]) : undefined,
-    );
+    const suggestedFollowUps = this.generateSuggestedFollowUps(intent, artifact);
 
     return { text, artifacts, suggestedFollowUps, lineageId, cacheStatus };
   }
@@ -381,22 +444,36 @@ export class ResponseSynthesizer {
 
   /**
    * Returns 3–5 intent-specific follow-up suggestions.
+   * For CLUSTER intents, suggestions are generated dynamically from the
+   * cluster narrative so they reference actual segments and top drivers.
    */
   generateSuggestedFollowUps(
     intent: AgentIntent,
-    data?: Record<string, unknown>[],
+    artifact?: AgentArtifact,
   ): string[] {
+    const isClusterIntent = intent.startsWith('CLUSTER') && intent !== 'CLUSTER_COMPARE';
+
+    // Dynamic cluster follow-ups based on actual results
+    if (isClusterIntent) {
+      return buildClusterFollowUps(artifact?.narrative);
+    }
+
     const base = FOLLOW_UPS[intent] ?? FOLLOW_UPS.UNKNOWN;
 
     // For ANALYST we can personalise suggestions based on column names
-    if (intent === 'ANALYST' && data && data.length > 0) {
-      const cols = Object.keys(data[0]);
-      const hasDate = cols.some((c) => /date|week|month|year|period/i.test(c));
-      const hasGeo = cols.some((c) => /region|country|state|city|market/i.test(c));
-      const extras: string[] = [];
-      if (hasDate) extras.push('Show me the trend over time.');
-      if (hasGeo) extras.push('Break this down by geography.');
-      return [...extras, ...base].slice(0, 5);
+    if (intent === 'ANALYST') {
+      const data = Array.isArray(artifact?.data)
+        ? (artifact!.data as Record<string, unknown>[])
+        : undefined;
+      if (data && data.length > 0) {
+        const cols = Object.keys(data[0]);
+        const hasDate = cols.some((c) => /date|week|month|year|period/i.test(c));
+        const hasGeo = cols.some((c) => /region|country|state|city|market/i.test(c));
+        const extras: string[] = [];
+        if (hasDate) extras.push('Show me the trend over time.');
+        if (hasGeo) extras.push('Break this down by geography.');
+        return [...extras, ...base].slice(0, 5);
+      }
     }
 
     return base.slice(0, 5);

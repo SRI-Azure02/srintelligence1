@@ -788,10 +788,12 @@ function MultiClusterReport({
   clusters,
   commonNotes,
   overallSummary,
+  intent,
 }: {
   clusters: ClusterForecast[]
   commonNotes?: string[]
   overallSummary?: string
+  intent?: string
 }) {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartCardRef = useRef<HTMLDivElement>(null)
@@ -887,7 +889,7 @@ function MultiClusterReport({
 
   // ── Chart body (reused in normal + fullscreen) ────────────────────────────
   const renderChart = (height: number, width: number) => (
-    <div ref={chartRef} style={{ overflowX: 'auto' }}>
+    <div ref={chartRef}>
       <div style={{ width, height }}>
         <ComposedChart width={width} height={height} data={chartData} margin={{ top: 8, right: 24, bottom: 60, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -1006,15 +1008,22 @@ function MultiClusterReport({
   return (
     <div className="flex flex-col gap-5">
 
-      {/* ── 1. Model Performance — one row per cluster ────────────────────── */}
+      {/* ── 1. Model Performance — shared model card + one row per cluster ── */}
       <div className="rounded-lg border border-gray-200 bg-white p-4">
         <SectionTitle>Model Performance</SectionTitle>
+
+        {/* Shared model name — same algorithm for all clusters */}
+        {modelNameFromIntent(intent) && (
+          <div className="flex flex-wrap gap-3 mb-4">
+            <MetricCard label="Model" value={modelNameFromIntent(intent)!} sub="Algorithm used" />
+          </div>
+        )}
+
         <div className="divide-y divide-gray-100">
           {clusters.map((c, i) => {
             const color   = CLUSTER_COLORS[i % CLUSTER_COLORS.length]
             const { label: relLabel, classes: relClasses } = reliabilityLabel(c.metrics?.mape)
             const relDesc = reliabilityDescription(c.metrics?.mape)
-            const trainedOn   = c.metrics?.trainedOn
             const validatedOn = c.metrics?.validatedOn
             return (
               <div key={c.clusterId} className="py-3.5 first:pt-1 last:pb-1">
@@ -1051,11 +1060,10 @@ function MultiClusterReport({
                   </div>
                 </div>
 
-                {/* Training / validation periods */}
-                {(trainedOn ?? validatedOn) && (
+                {/* Validated on */}
+                {validatedOn && (
                   <div className="flex flex-wrap gap-5 text-xs text-gray-500 pl-4">
-                    {trainedOn   && <span><span className="font-medium text-gray-700">Trained on:</span> {trainedOn}</span>}
-                    {validatedOn && <span><span className="font-medium text-gray-700">Validated on:</span> {validatedOn}</span>}
+                    <span><span className="font-medium text-gray-700">Validated on:</span> {validatedOn}</span>
                   </div>
                 )}
               </div>
@@ -1082,7 +1090,9 @@ function MultiClusterReport({
                 </button>
               </div>
             </div>
-            {renderChart(CHART_HEIGHT, scrollWidth)}
+            <div className="w-full overflow-x-auto">
+              {renderChart(CHART_HEIGHT, scrollWidth)}
+            </div>
           </div>
 
           {chartFullscreen && (
@@ -1091,10 +1101,12 @@ function MultiClusterReport({
               onClose={() => setChartFullscreen(false)}
               actions={<>{csvChartAction}{pptxChartAction}</>}
             >
-              {renderChart(
-                Math.max(400, window.innerHeight - 160),
-                Math.max(scrollWidth, window.innerWidth - 80),
-              )}
+              <div className="w-full overflow-x-auto">
+                {renderChart(
+                  Math.max(400, window.innerHeight - 160),
+                  Math.max(scrollWidth, window.innerWidth - 80),
+                )}
+              </div>
             </FullscreenOverlay>
           )}
         </>
@@ -1238,6 +1250,24 @@ function MultiClusterReport({
 }
 
 // ---------------------------------------------------------------------------
+// Model name helper — derive human-readable name from artifact.intent when
+// the Snowflake agent doesn't include it in structured data.
+// ---------------------------------------------------------------------------
+
+function modelNameFromIntent(intent: string | undefined): string | undefined {
+  switch (intent) {
+    case 'FORECAST_PROPHET':  return 'Prophet'
+    case 'FORECAST_SARIMA':   return 'SARIMA'
+    case 'FORECAST_HW':       return 'Holt-Winters'
+    case 'FORECAST_XGB':      return 'XGBoost'
+    case 'FORECAST_AUTO':     return 'Auto (Best Fit)'
+    case 'FORECAST_HYBRID':   return 'Hybrid'
+    case 'FORECAST_COMPARE':  return 'Comparison'
+    default:                  return undefined
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -1247,7 +1277,20 @@ interface Props {
 
 export default function ForecastArtifact({ artifact }: Props) {
   const chartRef = useRef<HTMLDivElement>(null)
+  const chartCardRef = useRef<HTMLDivElement>(null)
   const [fullscreen, setFullscreen] = useState<'chart' | 'table' | null>(null)
+  const [containerWidth, setContainerWidth] = useState(0)
+
+  useEffect(() => {
+    const el = chartCardRef.current
+    if (!el) return
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width
+      if (w) setContainerWidth(Math.floor(w))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // When the named Snowflake agent returns text-only (data is null),
   // parse the narrative markdown to extract structured forecast data.
@@ -1266,6 +1309,7 @@ export default function ForecastArtifact({ artifact }: Props) {
         clusters={raw.clusters}
         commonNotes={raw.commonNotes}
         overallSummary={raw.overallSummary}
+        intent={artifact.intent}
       />
     )
   }
@@ -1277,6 +1321,14 @@ export default function ForecastArtifact({ artifact }: Props) {
   const modelNotes = normaliseStringArray(raw, ['modelNotes', 'model_notes', 'notes'])
   const insights = normaliseStringArray(raw, ['insights'])
   const summary = raw.summary
+
+  // Merge validation rows that fall outside the historical period.
+  // The Snowflake agent may return historical (training) and validation (holdout)
+  // as separate non-overlapping arrays.  Without merging, the holdout weeks
+  // disappear from both the chart and the table.
+  const historicalDates = new Set(historical.map(normaliseDate))
+  const extraValRows = validationRows.filter(r => !historicalDates.has(normaliseDate(r)))
+  const mergedActuals = sortByDate([...historical, ...extraValRows])
 
   // ── Reliability ───────────────────────────────────────────────────────────
   const { label: relLabel, classes: relClasses } = reliabilityLabel(metrics.mape)
@@ -1311,7 +1363,7 @@ export default function ForecastArtifact({ artifact }: Props) {
   // When historical rows are absent (narrative-only response), fall back to
   // validation rows which contain actual vs predicted for the hold-out period.
   // CI band = stacked areas: ciBase (transparent) + ciSpan (light grey).
-  const actualsRows = historical.length > 0 ? historical : validationRows
+  const actualsRows = mergedActuals.length > 0 ? mergedActuals : validationRows
   const chartData = [
     ...actualsRows.map(row => {
       const actuals = normaliseActuals(row) ?? normalisePredicted(row)
@@ -1349,8 +1401,9 @@ export default function ForecastArtifact({ artifact }: Props) {
   )
 
   // ── Forecast table rows — all actuals history + future forecast ──────────
-  // Use full historical rows when available (v2 agents), else validation rows (v3 narrative)
-  const allActualsForTable = historical.length > 0 ? historical : validationRows
+  // Use merged actuals (historical + non-overlapping validation) for the table;
+  // fall back to plain validationRows when historical is absent.
+  const allActualsForTable = mergedActuals.length > 0 ? mergedActuals : validationRows
   const fTableRows = [
     ...allActualsForTable.map(row => ({
       week: normaliseDate(row),
@@ -1373,28 +1426,21 @@ export default function ForecastArtifact({ artifact }: Props) {
   ]
 
   // ── Chart scroll width — give each data point at least 16 px ─────────────
-  // Keeps chart readable when there are many historical weeks
+  // Fills the card width when measured; falls back to 700px minimum.
   const CHART_HEIGHT = 288
   const CHART_MIN_WIDTH = 700
-  const chartScrollWidth = Math.max(CHART_MIN_WIDTH, chartData.length * 16)
+  const chartScrollWidth = Math.max(
+    CHART_MIN_WIDTH,
+    chartData.length * 16,
+    containerWidth > 0 ? containerWidth - 32 : 0,
+  )
 
   const hasActualsInForecast = fTableRows.some(r => r.actuals != null)
   const hasForecastHoliday = fTableRows.some(r => !!r.holiday)
 
-  // ── Validation table rows ─────────────────────────────────────────────────
-  const vTableRows = validationRows.map(row => ({
-    week: normaliseDate(row),
-    actuals: normaliseActuals(row),
-    predicted: normalisePredicted(row),
-    errorPct: normaliseErrorPct(row),
-  }))
-
   // ── Helpers ───────────────────────────────────────────────────────────────
   const fmt = (v: number | undefined, decimals = 2) =>
     v != null ? v.toLocaleString(undefined, { maximumFractionDigits: decimals }) : '—'
-
-  const fmtPct = (v: number | undefined) =>
-    v != null ? `${v.toFixed(1)}%` : '—'
 
   return (
     <div className="flex flex-col gap-5">
@@ -1404,6 +1450,13 @@ export default function ForecastArtifact({ artifact }: Props) {
         <SectionTitle>Model Performance</SectionTitle>
 
         <div className="flex flex-wrap gap-3 mb-3">
+          {(metrics.model ?? modelNameFromIntent(artifact.intent)) && (
+            <MetricCard
+              label="Model"
+              value={metrics.model ?? modelNameFromIntent(artifact.intent)!}
+              sub="Algorithm used"
+            />
+          )}
           {metrics.mape != null && (
             <MetricCard
               label="MAPE"
@@ -1522,7 +1575,7 @@ export default function ForecastArtifact({ artifact }: Props) {
 
         return (
           <>
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div ref={chartCardRef} className="rounded-lg border border-gray-200 bg-white p-4">
               <div className="flex items-center justify-between mb-3">
                 <SectionTitle>Actuals vs Forecast</SectionTitle>
                 <div className="flex items-center gap-1.5 -mt-3">
@@ -1653,57 +1706,7 @@ export default function ForecastArtifact({ artifact }: Props) {
         )
       })()}
 
-      {/* ── 5. Validation Table ───────────────────────────────────────────── */}
-      {vTableRows.length > 0 && (
-        <CollapsibleTable
-          title="Validation"
-          onDownloadCSV={() => {
-            downloadCSV(
-              ['Week', 'Actuals', 'Predicted', 'Error %'],
-              vTableRows.map(r => [r.week, r.actuals, r.predicted, r.errorPct != null ? `${r.errorPct.toFixed(1)}%` : '']),
-              'validation.csv',
-            )
-          }}
-        >
-          <table className="min-w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-3 py-2 text-left font-semibold text-gray-600">Week</th>
-                <th className="px-3 py-2 text-right font-semibold text-gray-600">Actuals</th>
-                <th className="px-3 py-2 text-right font-semibold text-gray-600">Predicted</th>
-                <th className="px-3 py-2 text-right font-semibold text-gray-600">Error %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {vTableRows.map((row, i) => {
-                const err = row.errorPct
-                const errColor =
-                  err == null
-                    ? 'text-gray-500'
-                    : err > 20
-                    ? 'text-red-600 font-medium'
-                    : err > 10
-                    ? 'text-yellow-600'
-                    : 'text-green-700'
-                return (
-                  <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
-                    <td className="px-3 py-1.5 text-gray-700">{row.week}</td>
-                    <td className="px-3 py-1.5 text-right text-gray-700">{fmt(row.actuals)}</td>
-                    <td className="px-3 py-1.5 text-right font-medium text-gray-800">
-                      {fmt(row.predicted)}
-                    </td>
-                    <td className={`px-3 py-1.5 text-right ${errColor}`}>
-                      {fmtPct(err)}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </CollapsibleTable>
-      )}
-
-      {/* ── 6. Model Notes ────────────────────────────────────────────────── */}
+      {/* ── 5. Model Notes ────────────────────────────────────────────────── */}
       {modelNotes.length > 0 && (
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <SectionTitle>Model Notes</SectionTitle>

@@ -36,7 +36,7 @@ export default function ChatHome() {
         {/* Greeting */}
         <div className="text-center">
           <p className="text-2xl font-medium mb-1" style={{ color: "var(--text-primary)" }}>
-            {getGreeting()}, Harshad
+            {getGreeting()}
           </p>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
             What would you like to analyze?

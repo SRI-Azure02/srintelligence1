@@ -43,11 +43,35 @@ export class SessionStore {
 
   private constructor() {}
 
+  /**
+   * Singleton that survives Next.js HMR module re-evaluation.
+   *
+   * Without globalThis the static `instance` field resets to undefined every
+   * time any file is saved and the module is re-evaluated. That wipes every
+   * active session — and with it every conversation history — so follow-up
+   * queries always start with an empty context.
+   *
+   * PID isolation: a real server restart (new PID) always starts fresh, while
+   * HMR re-evaluations within the same process correctly reuse the existing
+   * store. This mirrors the CacheManager pattern.
+   */
   static getInstance(): SessionStore {
-    if (!SessionStore.instance) {
-      SessionStore.instance = new SessionStore();
+    const g = globalThis as typeof globalThis & {
+      __sriSessionStore?: SessionStore;
+      __sriSessionStorePid?: number;
+    };
+    if (g.__sriSessionStorePid !== process.pid) {
+      // New process — discard stale sessions from the previous run
+      g.__sriSessionStore = undefined;
+      g.__sriSessionStorePid = process.pid;
     }
-    return SessionStore.instance;
+    if (!g.__sriSessionStore) {
+      g.__sriSessionStore = new SessionStore();
+    }
+    // Keep the module-level static in sync so existing callsites that reference
+    // SessionStore.instance directly (if any) also get the correct instance.
+    SessionStore.instance = g.__sriSessionStore;
+    return g.__sriSessionStore;
   }
 
   // -------------------------------------------------------------------------
