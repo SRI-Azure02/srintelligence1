@@ -349,10 +349,16 @@ export class ResponseSynthesizer {
       }
 
       case 'MTREE': {
+        // Use the `# Heading` from the agent narrative as the chat message title
+        // (e.g. "Drivers of BRAND1 Market Share Change in Cluster 0 (H1 → H2 2025)").
+        // Strip the heading line from the body so it doesn't appear twice.
+        const mtreeHeadingM = base.match(/^#+\s+(.+)/m);
+        const mtreeTitle = mtreeHeadingM ? mtreeHeadingM[1].trim() : 'Metric Tree Analysis';
+        const mtreeBody = mtreeHeadingM ? base.replace(/^#+\s+.+\n?/, '').trim() : base;
         return [
-          '### Metric Tree Analysis',
+          `### ${mtreeTitle}`,
           '',
-          base,
+          mtreeBody,
           '',
           `_Decomposition complete • duration: ${result.durationMs}ms • cache: ${artifact?.cacheStatus ?? 'miss'}_`,
         ].join('\n');

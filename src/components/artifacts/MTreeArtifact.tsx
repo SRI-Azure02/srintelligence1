@@ -157,7 +157,9 @@ function parseMTreeNarrative(text: string): MTreeData {
   }
 
   // Fallback: simple 2-column table "| Label | +2.34 pp |"
-  if (waterfall.length === 0) {
+  // Only used when NO "Waterfall Attribution" section was found at all, to avoid
+  // the 2-column regex accidentally matching the wrong columns in a 7-col table.
+  if (waterfall.length === 0 && !wfSectionM) {
     const wfTableRe = /\|\s*([^|]+?)\s*\|\s*([+\-]?\d+\.?\d*)\s*pp?\s*\|/gi
     let wm: RegExpExecArray | null
     while ((wm = wfTableRe.exec(cleaned)) !== null) {
