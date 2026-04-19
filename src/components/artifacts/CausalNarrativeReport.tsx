@@ -391,29 +391,66 @@ function buildW2Data(
       h.includes('claims decline') || h.includes('volume decline') || h.includes('rx change') ||
       h.includes('impact'))
   })()
+  // "What Happened" / explanation column — inline interpretation the agent writes in the table
+  const noteIdx = hLower.findIndex(h =>
+    h.includes('what') || h.includes('explanation') || h.includes('reason') ||
+    h.includes('note') || h.includes('narrative'))
 
   const items: WFItem[] = []
+  const inlineNotes: string[] = []
 
   // Row classification mirrors W1: numeric step OR (no step col) → all non-total rows
   const hasStepCol = stepIdx >= 0
-  const rowMeta: { isTotal: boolean; name: string; loss: string }[] = []
+  const rowMeta: { isTotal: boolean; name: string; loss: string; note: string }[] = []
 
   for (const row of rows) {
-    const step  = stripMd(stepIdx  >= 0 ? (row.cells[stepIdx]  ?? '') : (row.cells[0] ?? ''))
-    const label = labelIdx >= 0 ? (row.cells[labelIdx] ?? '') : (row.cells[Math.min(hasStepCol ? 1 : 0, row.cells.length - 1)] ?? '')
-    const loss  = lossIdx  >= 0 ? (row.cells[lossIdx]  ?? '') : ''
+    const stepRaw = stripMd(stepIdx >= 0 ? (row.cells[stepIdx] ?? '') : (row.cells[0] ?? ''))
+    const isTotal   = /^total|^sum|^all\b|^overall/i.test(stepRaw) ||
+                      /^total|^sum|^all\b|^overall/i.test(stripMd(row.cells[labelIdx >= 0 ? labelIdx : 1] ?? ''))
+    const isNumeric = /^\d+\.?$/.test(stepRaw) || /^step\s*\d+$/i.test(stepRaw)
 
-    const isTotal   = /^total|^sum|^all\b|^overall/i.test(step) || /^total|^sum|^all\b|^overall/i.test(stripMd(label))
-    const isNumeric = /^\d+\.?$/.test(step) || /^step\s*\d+$/i.test(step)
+    // Detect misaligned rows: the CI agent sometimes uses the "Step" column as the
+    // channel/segment label (e.g. "Commercial", "Assistance Programs") instead of a
+    // numeric step ID, and omits the step value so each row has fewer cells than the
+    // header.  In that case cells[0]=channelName, cells[1]=claimsLost, cells[2]=note.
+    const isMisaligned = !isNumeric && !isTotal && stepRaw.length > 1 &&
+                         hasStepCol && row.cells.length < headers.length
 
-    rowMeta.push({ isTotal, name: stripParens(stripMd(label)).slice(0, 22), loss })
+    let name: string
+    let loss: string
+    let note: string
+
+    if (isMisaligned) {
+      name = stripParens(stepRaw).slice(0, 22)
+      loss = stripMd(row.cells[1] ?? '')
+      note = stripMd(row.cells[2] ?? '')
+    } else {
+      const label = labelIdx >= 0
+        ? (row.cells[labelIdx] ?? '')
+        : (row.cells[Math.min(hasStepCol ? 1 : 0, row.cells.length - 1)] ?? '')
+      name = stripParens(stripMd(label)).slice(0, 22)
+      loss = lossIdx >= 0 ? (row.cells[lossIdx] ?? '') : ''
+      note = noteIdx >= 0 ? stripMd(row.cells[noteIdx] ?? '') : ''
+    }
+
+    rowMeta.push({ isTotal, name, loss, note })
+
+    if (isMisaligned) {
+      if (!isTotal && name.length > 0) {
+        const contribution = -Math.abs(parseNum(loss))
+        items.push({ name, contribution })
+        if (note.length > 3) inlineNotes.push(`${name}: ${note}`)
+      }
+      continue
+    }
 
     // Accept row when: step col exists and step is numeric, OR no step col and row isn't a total row
     if (hasStepCol && !isNumeric) continue
     if (isTotal) continue
 
     const contribution = -Math.abs(parseNum(loss))  // Brand7 declined → all contributions negative
-    items.push({ name: rowMeta[rowMeta.length - 1].name, contribution })
+    items.push({ name, contribution })
+    if (note.length > 3) inlineNotes.push(`${name}: ${note}`)
   }
 
   // Fallback: if items still empty, use all non-total rows
@@ -421,6 +458,7 @@ function buildW2Data(
     for (const r of rowMeta) {
       if (!r.isTotal && r.name.length > 0) {
         items.push({ name: r.name, contribution: -Math.abs(parseNum(r.loss)) })
+        if (r.note.length > 3) inlineNotes.push(`${r.name}: ${r.note}`)
       }
     }
   }
@@ -439,7 +477,13 @@ function buildW2Data(
     baseline = totalLoss > 0 ? totalLoss : 1
     finalVal = 0
   }
-  return { baseline, finalVal, items: normalizeItems(items, baseline, finalVal) }
+  return {
+    baseline,
+    finalVal,
+    items: normalizeItems(items, baseline, finalVal),
+    /** Interpretation assembled from the "What Happened" table column when no paragraph follows */
+    tableInterpretation: inlineNotes.join('  \n'),
+  }
 }
 
 function buildW3Data(section: ParsedSection, shareBaseline: number, shareFinal: number) {
@@ -725,10 +769,23 @@ function InterpretationBlock({ text }: { text: string }) {
   if (!text.trim()) return null
   const label = /^(pattern)/i.test(text) ? 'Pattern' : 'Interpretation'
   const body  = text.replace(/^(Interpretation|Pattern)\s*:\s*/i, '').trim()
+  // Split on newlines so multi-entry table interpretations render as separate bullet lines
+  const lines = body.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
   return (
     <div className="bg-blue-50 border border-blue-100 rounded-md px-4 py-3 mt-3">
-      <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-1">{label}</p>
-      <p className="text-sm text-blue-900 leading-relaxed">{body}</p>
+      <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">{label}</p>
+      {lines.length === 1 ? (
+        <p className="text-sm text-blue-900 leading-relaxed">{lines[0]}</p>
+      ) : (
+        <ul className="space-y-1.5 list-none m-0 p-0">
+          {lines.map((line, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm text-blue-900 leading-relaxed">
+              <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-blue-400 flex-shrink-0" />
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -946,17 +1003,20 @@ export default function CausalNarrativeReport({
       {w2 && (
         <CollapsibleCard title={w2.title} isOpen={openId === 'w2'} onToggle={() => toggle('w2')} accentColor={ACCENT.w2}>
           {(() => {
-            const { baseline, finalVal, items } = buildW2Data(
+            const { baseline, finalVal, items, tableInterpretation } = buildW2Data(
               w2,
               brand7Shares?.h1 ?? 0,
               brand7Shares?.h2 ?? 0,
             )
+            // Prefer a paragraph the agent wrote after the table; fall back to the
+            // "What Happened" column values extracted from the table rows themselves.
+            const interpText = w2.interpretation || tableInterpretation
             return (
               <>
                 <WaterfallChart baseline={baseline} finalVal={finalVal} items={items}
                   yTickFormatter={v => v.toFixed(2) + '%'}
                   baselineLabel="H1 Share" finalLabel="H2 Share" />
-                <InterpretationBlock text={w2.interpretation} />
+                <InterpretationBlock text={interpText} />
               </>
             )
           })()}
