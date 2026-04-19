@@ -128,11 +128,15 @@ export class AnalystAgent {
     // Prior-query SQL anchor (must be resolved before the cache key so that
     // follow-up questions with different prior contexts get distinct cache slots)
     // ------------------------------------------------------------------
-    // Find the most recent assistant turn that produced SQL.  This is used below
+    // Find the most recent ANALYST turn that produced SQL.  This is used below
     // to inject filter-preservation context for follow-up questions.
+    // IMPORTANT: we must restrict to intent === 'ANALYST' so that CLUSTER UDTF
+    // SQL (which is also stored on assistant messages) is never injected as a
+    // "prior query" — Cortex Analyst cannot interpret UDTF syntax and produces
+    // zero-row queries when asked to "preserve filters" from it.
     const priorAssistantSql = [...input.conversationHistory]
       .reverse()
-      .find((m) => m.role === 'assistant' && m.sql)?.sql ?? null;
+      .find((m) => m.role === 'assistant' && m.sql && m.intent === 'ANALYST')?.sql ?? null;
 
     // ------------------------------------------------------------------
     // Cache lookup
@@ -579,11 +583,14 @@ export class AnalystAgent {
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m): AnalystMessage => {
         const content: AnalystMessage['content'] = [{ type: 'text', text: m.content }];
-        // For analyst turns that produced SQL, include the SQL as a content block.
+        // For ANALYST turns that produced SQL, include the SQL as a content block.
         // Cortex Analyst uses this to understand which columns and tables the prior
         // query touched, enabling accurate follow-up queries (e.g. "break that down
         // by region" correctly references physician_state from the original query).
-        if (m.role === 'assistant' && m.sql) {
+        // Restrict to intent === 'ANALYST' — CLUSTER UDTF SQL, FORECAST SQL, etc.
+        // must NOT be forwarded to Cortex Analyst as it cannot parse them and will
+        // generate zero-row queries trying to "preserve" their structure.
+        if (m.role === 'assistant' && m.sql && m.intent === 'ANALYST') {
           content.push({ type: 'sql', statement: m.sql });
         }
         return {
