@@ -38,6 +38,8 @@ interface MTreeData {
   baseline?: number
   current?: number
   change?: number
+  /** The `# Heading` extracted from the agent narrative, e.g. "Drivers of BRAND1 Market Share Change in Cluster 0 (H1 → H2 2025)" */
+  title?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -52,28 +54,47 @@ function parseMTreeNarrative(text: string): MTreeData {
     .replace(/cache:\s*(hit|miss)[^\n]*/gi, '')
     .trim()
 
-  // ── Extract tree nodes from feature importance section ─────────────────────
-  // Matches lines like: "- **SPECIALTY** – importance score: 0.42 (Top Driver)"
-  // or table rows like: "| SPECIALTY | 0.42 | Top Driver |"
+  // ── Extract page title from first `#` heading ─────────────────────────────
+  // e.g. "# Drivers of BRAND1 Market Share Change in Cluster 0 (H1 → H2 2025)"
+  const headingM = cleaned.match(/^#+\s+(.+)/m)
+  const title = headingM ? headingM[1].trim() : undefined
+
+  // ── Extract tree nodes ─────────────────────────────────────────────────────
   const nodes: TreeNode[] = []
 
-  // Look for a feature importance table
-  const tableRe = /\|\s*([A-Z_]+)\s*\|\s*([\d.]+)\s*\|([^|\n]*)/g
-  let tm: RegExpExecArray | null
-  let rank = 1
-  while ((tm = tableRe.exec(cleaned)) !== null) {
-    const feature = tm[1].trim()
-    const importance = parseFloat(tm[2])
-    if (!isNaN(importance) && feature.length > 1) {
-      nodes.push({ feature, importance, rank: rank++, interpretation: tm[3].trim().replace(/\|/g, '').trim() })
+  // Priority: 4-column ranked driver table output by the Cortex agent:
+  //   | **1** | **Patient Gender** | Female patients | **+1.78pp** |
+  // After stripping ** → | 1 | Patient Gender | Female patients | +1.78pp |
+  const driverTableRe = /^\|\s*\*{0,2}(\d+)\*{0,2}\s*\|\s*\*{0,2}([^|]+?)\*{0,2}\s*\|\s*[^|]+?\|\s*\*{0,2}([+\-]?\d+\.?\d*)pp\*{0,2}\s*\|/gm
+  let dtm: RegExpExecArray | null
+  while ((dtm = driverTableRe.exec(cleaned)) !== null) {
+    const dRank = parseInt(dtm[1])
+    const feature = dtm[2].trim()
+    const impact = Math.abs(parseFloat(dtm[3]))
+    if (!isNaN(dRank) && feature.length > 1 && !isNaN(impact)) {
+      nodes.push({ feature, importance: impact, rank: dRank })
     }
   }
 
-  // Fallback: look for bullet / bold patterns
+  // Fallback: look for a UPPERCASE_FEATURE | number table
+  if (nodes.length === 0) {
+    const tableRe = /\|\s*([A-Z_]+)\s*\|\s*([\d.]+)\s*\|([^|\n]*)/g
+    let tm: RegExpExecArray | null
+    let rank = 1
+    while ((tm = tableRe.exec(cleaned)) !== null) {
+      const feature = tm[1].trim()
+      const importance = parseFloat(tm[2])
+      if (!isNaN(importance) && feature.length > 1) {
+        nodes.push({ feature, importance, rank: rank++, interpretation: tm[3].trim().replace(/\|/g, '').trim() })
+      }
+    }
+  }
+
+  // Fallback 2: bullet / bold "FEATURE importance: 0.42" patterns
   if (nodes.length === 0) {
     const bulletRe = /\*{0,2}([A-Z_]{2,})\*{0,2}[^::\n]*(?:importance|score|weight)[^::\n]*[:：]\s*([\d.]+)([^\n]*)/gi
     let bm: RegExpExecArray | null
-    rank = 1
+    let rank = 1
     while ((bm = bulletRe.exec(cleaned)) !== null) {
       const importance = parseFloat(bm[2])
       if (!isNaN(importance)) {
@@ -87,11 +108,11 @@ function parseMTreeNarrative(text: string): MTreeData {
     }
   }
 
-  // Fallback 2: pick up ASCII tree labels like "├── SPECIALTY (Top Driver)"
+  // Fallback 3: ASCII tree labels like "├── SPECIALTY (Top Driver)"
   if (nodes.length === 0) {
-    const asciiRe = /[├└]──\s*([A-Z_]{2,})(?:\s*\(([^)]+)\))?/g
+    const asciiRe = /[├└]──\s*([A-Za-z/_-]{2,})(?:\s*\(([^)]+)\))?/g
     let am: RegExpExecArray | null
-    rank = 1
+    let rank = 1
     while ((am = asciiRe.exec(cleaned)) !== null) {
       nodes.push({
         feature: am[1].trim(),
@@ -102,22 +123,53 @@ function parseMTreeNarrative(text: string): MTreeData {
     }
   }
 
-  // Sort by importance desc
+  // Sort by importance desc, re-rank
   nodes.sort((a, b) => b.importance - a.importance)
   nodes.forEach((n, i) => { n.rank = i + 1 })
 
   // ── Extract waterfall items ─────────────────────────────────────────────────
   const waterfall: WaterfallItem[] = []
-  // Look for patterns: "Segment Name: +2.34 pp" or "| Label | +2.34 |"
-  const wfTableRe = /\|\s*([^|]+?)\s*\|\s*([+\-]?\d+\.?\d*)\s*pp?\s*\|/gi
-  let wm: RegExpExecArray | null
-  while ((wm = wfTableRe.exec(cleaned)) !== null) {
-    const seg = wm[1].trim().replace(/\*+/g, '')
-    const val = parseFloat(wm[2])
-    if (!isNaN(val) && seg.length > 1 && !/^[-=]+$/.test(seg)) {
-      waterfall.push({ segment: seg, contribution: val })
+
+  // Primary: row-splitting parser for the 7-column table produced by the Cortex agent:
+  //   | ID | Segment Description | H1% | H2% | Seg Δpp | Weighted Contribution | Running% |
+  // e.g. | 1a | Specialty = OB/GYN | 39.41% | 40.99% | +1.58pp | +0.95pp | 36.29% |
+  const wfSectionM = cleaned.match(/Waterfall\s+Attribution[^\n]*\n([\s\S]*?)(?=\n#{1,3}\s|$)/i)
+  if (wfSectionM) {
+    const tableBlock = wfSectionM[1]
+    for (const line of tableBlock.split('\n')) {
+      if (!line.includes('|')) continue
+      const cols = line.split('|').map(c => c.trim().replace(/\*+/g, '').trim())
+      // 7-column rows → split produces 9 elements: ['', id, seg, h1, h2, delta, contrib, running, '']
+      if (cols.length < 8) continue
+      const segLabel = cols[2]
+      const contribStr = cols[6]
+      // Skip separator / header rows
+      if (!segLabel || /^[-:\s]+$/.test(segLabel)) continue
+      if (/segment|description|label|feature|driver/i.test(segLabel)) continue
+      // Skip the Final/Net Result row (baseline/current handled separately)
+      if (/net\s*result|final/i.test(cols[1]) || /net\s*result|final/i.test(segLabel)) continue
+      // Parse contribution: strip pp, %, + but keep minus sign
+      const val = parseFloat(contribStr.replace(/[p%+\s]/gi, ''))
+      if (!isNaN(val)) {
+        waterfall.push({ segment: segLabel, contribution: val })
+      }
     }
   }
+
+  // Fallback: simple 2-column table "| Label | +2.34 pp |"
+  if (waterfall.length === 0) {
+    const wfTableRe = /\|\s*([^|]+?)\s*\|\s*([+\-]?\d+\.?\d*)\s*pp?\s*\|/gi
+    let wm: RegExpExecArray | null
+    while ((wm = wfTableRe.exec(cleaned)) !== null) {
+      const seg = wm[1].trim().replace(/\*+/g, '')
+      const val = parseFloat(wm[2])
+      if (!isNaN(val) && seg.length > 1 && !/^[-=]+$/.test(seg)) {
+        waterfall.push({ segment: seg, contribution: val })
+      }
+    }
+  }
+
+  // Fallback 2: bullet/inline "- Segment: +2.34 pp"
   if (waterfall.length === 0) {
     const wfBulletRe = /[-•]\s+([^::\n]{3,60})[:\s]+([+\-]?\d+\.?\d*)\s*pp/gi
     let wb: RegExpExecArray | null
@@ -152,7 +204,6 @@ function parseMTreeNarrative(text: string): MTreeData {
       .join('\n')
   }
   if (!summary) {
-    // Use last paragraph
     const paras = cleaned.split(/\n\n+/).filter(p => p.trim().length > 20)
     summary = paras[paras.length - 1]?.trim() ?? ''
   }
@@ -174,7 +225,7 @@ function parseMTreeNarrative(text: string): MTreeData {
       ? parseFloat(cleaned.match(/[Ff]inal[:\s]+([\d.]+)%/)![1])
       : baseline != null && change != null ? baseline + change : undefined
 
-  return { nodes, waterfall, insights, summary, change, baseline, current }
+  return { nodes, waterfall, insights, summary, change, baseline, current, title }
 }
 
 // ---------------------------------------------------------------------------
@@ -571,7 +622,7 @@ export default function MTreeArtifact({ artifact }: Props) {
     <div className="flex flex-col gap-4">
       {/* ── Card 1: Decision Tree ──────────────────────────────────────────── */}
       {hasTree && (
-        <SectionCard title="Drivers of Market Share Change">
+        <SectionCard title={parsed.title ?? 'Drivers of Market Share Change'}>
           <VisualDecisionTree nodes={parsed.nodes} />
         </SectionCard>
       )}
