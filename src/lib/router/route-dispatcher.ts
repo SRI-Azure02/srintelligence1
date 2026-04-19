@@ -982,7 +982,7 @@ export class RouteDispatcher {
     const classification = await classifyIntent({
       message,
       conversationContext: this.context.conversationHistory
-        .slice(-6)
+        .slice(-16)
         .map((m) => `${m.role}: ${m.content}`)
         .join('\n'),
       priorIntents,
@@ -1675,7 +1675,7 @@ export class RouteDispatcher {
       // Pass conversation history so Cortex Analyst understands follow-on context
       // like "cluster those physicians". Content must be Array<{type,text}>.
       const clusterHistory = this.context.conversationHistory
-        .slice(-6)
+        .slice(-16)
         .map((m) => ({
           role: (m.role === 'assistant' ? 'analyst' : 'user') as 'user' | 'analyst',
           content: [{ type: 'text', text: m.content }],
@@ -1916,7 +1916,7 @@ const nSegmentsUsed = (parsedMeta['n_clusters'] as number | undefined) ?? nClust
     currentMessage: string,
     intentFamily?: string,
   ): Array<{ role: 'user' | 'assistant'; content: string }> {
-    const history = this.context.conversationHistory.slice(-6);
+    const history = this.context.conversationHistory.slice(-16);
     const agentMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
     for (const turn of history) {

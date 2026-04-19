@@ -273,7 +273,7 @@ function buildAgentMessage(id: string, resp: FormattedResponse): { msg: ChatMess
   let tableData  = (!isForecast && !isCluster && !isCausal && analystArtifact) ? artifactToTableData(analystArtifact)
                  : (!isForecast && !isCluster && !isCausal && firstArtifact)   ? artifactToTableData(firstArtifact)
                  : undefined;
-  const chartData  = (!isForecast && !isCluster && !isCausal && firstArtifact) ? artifactToChartData(firstArtifact) : undefined;
+  const chartData  = undefined;
 
   // Sort tableData rows by temporal column oldest → newest (MM/DD/YY format)
   if (tableData) {
