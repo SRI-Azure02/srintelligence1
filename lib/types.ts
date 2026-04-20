@@ -32,6 +32,10 @@ export interface ChatMessage {
   mTreeNarrative?: string;
   /** Raw narrative text from the Causal Inference agent — rendered by CausalNarrativeReport */
   causalNarrative?: string;
+  /** When set, this message IS a plan card (role = "user", content = "") */
+  plan?: Plan;
+  /** When set on an agent message, links it back to the plan step that produced it */
+  planStepId?: string;
 }
 
 export interface AgentActivity {
@@ -61,6 +65,9 @@ export interface WorkflowCard {
   lastRun: string;
   status: "success" | "running" | "failed";
   runCount: number;
+  createdAt?: string;   // ISO-8601 timestamp
+  updatedAt?: string;   // ISO-8601 timestamp (updated on every save)
+  notes?: string;       // freeform user notes about this workflow
 }
 
 export interface AgentStep {
@@ -75,6 +82,7 @@ export interface AgentStep {
 }
 
 export type AgentType =
+  | "sri-analyst"
   | "sri-forecast"
   | "sri-clustering"
   | "sri-mtree"
@@ -94,6 +102,17 @@ export type AgentType =
   | "hierarchical"
   | "auto-cluster"
   | "output";
+
+export interface WorkflowVersion {
+  versionId: string;
+  workflowId: string;
+  versionNumber: number;  // 1-based, auto-incremented
+  savedAt: string;        // ISO-8601
+  name: string;           // workflow name at time of save
+  agentChain: AgentStep[];
+  notes: string;          // optional per-version note left by the user
+  bookmarked?: boolean;   // pinned versions survive the 10-version cap
+}
 
 export interface WorkflowRun {
   id: string;
@@ -151,4 +170,31 @@ export interface SemanticModel {
   name: string;
   description: string;
   tables: SemanticTable[];
+}
+
+// ── Planning Mode ─────────────────────────────────────────────────────────────
+
+export type PlanStepStatus = "pending" | "running" | "done" | "error";
+
+export interface PlanStep {
+  /** Stable unique ID generated at creation time */
+  id: string;
+  /** Short one-line label shown in the step card, e.g. "Segment customers by revenue" */
+  title: string;
+  /** One sentence describing what this step does */
+  description: string;
+  /** The exact message string sent to the agent when this step executes */
+  message: string;
+  status: PlanStepStatus;
+  errorMessage?: string;
+}
+
+export interface Plan {
+  id: string;
+  originalPrompt: string;
+  steps: PlanStep[];
+  /** Whether the plan is currently executing */
+  executing: boolean;
+  /** Index of the step currently running (-1 = not started, null = finished/error) */
+  executingIndex: number | null;
 }

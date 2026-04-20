@@ -165,6 +165,8 @@ interface ChatInputProps {
   placeholder?: string;
   onSubmit: (value: string) => void;
   onAbort?: () => void;
+  /** Called when user presses Shift+Enter — triggers planning mode */
+  onPlan?: (message: string) => void;
   history?: string[];
   autoFocus?: boolean;
   compact?: boolean;
@@ -199,6 +201,7 @@ export default function ChatInput({
   placeholder = "Ask a question...",
   onSubmit,
   onAbort,
+  onPlan,
   history = [],
   autoFocus = false,
   compact = false,
@@ -561,6 +564,23 @@ export default function ChatInput({
   // ---------------------------------------------------------------------------
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // ── Plan (Ctrl+Shift+Enter) — highest priority, checked before all popups
+    if (e.key === "Enter" && e.ctrlKey && e.shiftKey) {
+      e.preventDefault();
+      const trimmed = value.trim();
+      if (trimmed && !disabled && onPlan) {
+        historyIdxRef.current = -1;
+        draftRef.current = "";
+        onPlan(trimmed);
+        setValue("");
+        setInFeatureListMode(false);
+        setCommaTriggered(false);
+        setAlreadyListedFeatures(new Set());
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+      }
+      return;
+    }
+
     // ── Feature column picker ───────────────────────────────────────────────
     if (featurePopup && filteredColumns.length > 0) {
       if (e.key === "ArrowDown") {
@@ -683,6 +703,19 @@ export default function ChatInput({
     historyIdxRef.current = -1;
     draftRef.current = "";
     onSubmit(trimmed);
+    setValue("");
+    setInFeatureListMode(false);
+    setCommaTriggered(false);
+    setAlreadyListedFeatures(new Set());
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+  };
+
+  const handlePlan = () => {
+    const trimmed = value.trim();
+    if (!trimmed || disabled || !onPlan) return;
+    historyIdxRef.current = -1;
+    draftRef.current = "";
+    onPlan(trimmed);
     setValue("");
     setInFeatureListMode(false);
     setCommaTriggered(false);
@@ -1024,7 +1057,7 @@ export default function ChatInput({
             <kbd
               className="px-1 py-0.5 rounded text-xs font-mono"
               style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-secondary)", fontSize: "10px" }}
-            >⇧ Enter</kbd>
+            >⌃⇧ Enter</kbd>
             <span>plan</span>
           </span>
           {/* Contextual hints — appear only when relevant */}

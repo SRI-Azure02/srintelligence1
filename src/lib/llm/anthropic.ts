@@ -8,6 +8,7 @@
  *   decomposeIntoPipeline — produce a PipelineDefinition from a message
  *   synthesizeNarrative   — generate an executive markdown summary
  *   detectTimePeriods     — extract baseline / target time period references
+ *   generatePlan          — break a user request into ordered analysis steps
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -326,4 +327,113 @@ export async function detectTimePeriods(
   } catch {
     return { baseline: DEFAULT_BASELINE, target: DEFAULT_TARGET };
   }
+}
+
+// ---------------------------------------------------------------------------
+// generatePlan
+// ---------------------------------------------------------------------------
+
+export interface RawPlanStep {
+  title: string;
+  description: string;
+  message: string;
+}
+
+/**
+ * Breaks a user request into an ordered sequence of agent-executable steps.
+ * Returns between 2–6 steps, each with a short title, a one-sentence description,
+ * and the exact message string to send to the routing pipeline.
+ */
+export async function generatePlan(params: {
+  message: string;
+  conversationContext?: string;
+}): Promise<{ steps: RawPlanStep[] }> {
+  const { message, conversationContext } = params;
+
+  const systemPrompt = [
+    'You are a planning assistant for a pharma business-intelligence platform called SRIntelligence.',
+    'The platform can execute the following agent types:',
+    '  • Analyst      — SQL queries against Snowflake (cohort selection, metric retrieval)',
+    '  • Clustering   — segment physicians/patients into groups by behaviour',
+    '  • Forecast     — time-series forecasting (Prophet, SARIMA, Holt-Winters, XGBoost, Hybrid)',
+    '  • Causal       — causal-inference driver analysis and competitive attribution',
+    '  • MTree        — metric-tree / waterfall decomposition of share change',
+    '',
+    'Given a user request, return a JSON object (no markdown fences, no commentary):',
+    '{',
+    '  "steps": [',
+    '    {',
+    '      "title": "<8-word max action label, sentence case, no trailing punctuation>",',
+    '      "description": "<one sentence: what this step does and which agent handles it>",',
+    '      "message": "<self-contained, executable BI prompt for this step>"',
+    '    }',
+    '  ]',
+    '}',
+    '',
+    'Rules:',
+    '  1. Produce 2–6 steps. Never fewer than 2, never more than 6.',
+    '  2. Each "message" must stand alone — the agent receives it without additional context.',
+    '     Embed necessary filters (geography, brand, date range, etc.) directly in the message.',
+    '  3. Sequence: data retrieval → aggregation/segmentation → ML analysis → synthesis.',
+    '  4. Do NOT include a step whose only purpose is "summarise" — the platform auto-summarises.',
+    '  5. If prior context already retrieved a cohort, the first step should reference it naturally.',
+    '  6. Respond with valid JSON only.',
+  ].join('\n');
+
+  const userContent = [
+    conversationContext ? `Recent conversation:\n${conversationContext}\n` : '',
+    `User request: ${message}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 900,
+    temperature: 0,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userContent }],
+  });
+
+  const firstBlock = response.content[0];
+  if (firstBlock.type !== 'text') {
+    throw new Error('Unexpected response type from plan generation');
+  }
+
+  let parsed: unknown;
+  try {
+    const cleaned = firstBlock.text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    throw new Error(`Failed to parse plan JSON: ${String(err)}`);
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    !Array.isArray((parsed as Record<string, unknown>).steps)
+  ) {
+    throw new Error('Plan response is missing steps array');
+  }
+
+  const steps = ((parsed as Record<string, unknown>).steps as unknown[]).map(
+    (s, i): RawPlanStep => {
+      if (!s || typeof s !== 'object') throw new Error(`Step ${i} is not an object`);
+      const obj = s as Record<string, unknown>;
+      if (typeof obj.title !== 'string' || typeof obj.message !== 'string') {
+        throw new Error(`Step ${i} missing required title or message field`);
+      }
+      return {
+        title:       obj.title,
+        description: typeof obj.description === 'string' ? obj.description : '',
+        message:     obj.message,
+      };
+    },
+  );
+
+  if (steps.length < 1) throw new Error('Plan must have at least one step');
+  return { steps };
 }

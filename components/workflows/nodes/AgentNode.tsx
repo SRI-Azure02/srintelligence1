@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
-import { Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Pencil, Trash2 } from "lucide-react";
+import { Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Pencil, Trash2, Search, AlertCircle } from "lucide-react";
 
 type IconComponent = React.FC<{ size?: number; style?: React.CSSProperties; strokeWidth?: number }>;
 
 const AGENT_COLORS: Record<string, string> = {
-  // SRI ML agents
+  // SRI agents
+  "sri-analyst":    "#2891DA",
   "sri-forecast":   "#34c98b",
   "sri-clustering": "#a78bfa",
   "sri-mtree":      "#fb923c",
@@ -30,7 +31,8 @@ const AGENT_COLORS: Record<string, string> = {
 };
 
 const AGENT_ICONS: Record<string, IconComponent> = {
-  // SRI ML agents
+  // SRI agents
+  "sri-analyst":    Search,
   "sri-forecast":   TrendingUp,
   "sri-clustering": Layers,
   "sri-mtree":      GitFork,
@@ -65,6 +67,9 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
   const semanticModel = (data.semanticModel as string) ?? "";
   const AgentIcon = AGENT_ICONS[agentType] ?? TrendingUp;
 
+  // A node needs attention when the prompt hasn't been filled in yet
+  const needsInput = !prompt.trim();
+
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     deleteElements({ nodes: [{ id }] });
@@ -72,17 +77,41 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
 
   return (
     <div
-      className="relative rounded-xl overflow-hidden"
+      className="relative rounded-xl overflow-visible"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         width: 210,
         background: "#ffffff",
-        border: `2px solid ${selected ? color : "var(--border)"}`,
-        boxShadow: selected ? `0 0 0 3px ${color}22` : "0 1px 3px rgba(0,0,0,0.06)",
+        border: `2px solid ${selected ? color : needsInput ? "#f59e0b" : "var(--border)"}`,
+        boxShadow: selected ? `0 0 0 3px ${color}22` : needsInput ? "0 0 0 3px rgba(245,158,11,0.15)" : "0 1px 3px rgba(0,0,0,0.06)",
         transition: "border-color 0.15s, box-shadow 0.15s",
       }}
     >
+      {/* Missing-input warning badge */}
+      {needsInput && (
+        <div
+          className="absolute flex items-center gap-1 px-1.5 py-0.5 rounded-full text-white"
+          style={{
+            top: -10,
+            right: -10,
+            background: "#f59e0b",
+            fontSize: "9px",
+            fontWeight: 700,
+            letterSpacing: "0.02em",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.18)",
+            zIndex: 10,
+            pointerEvents: "none",
+          }}
+          title="Prompt required — click node to configure"
+        >
+          <AlertCircle size={10} strokeWidth={2.5} />
+          Input needed
+        </div>
+      )}
+      {/* Inner wrapper clips content to rounded corners without clipping the badge */}
+      <div className="rounded-xl overflow-hidden">
+
       {/* Header */}
       <div
         className="flex items-center justify-between px-3 py-2"
@@ -144,8 +173,38 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
         )}
       </div>
 
-      <Handle type="target" position={Position.Top} style={{ background: "var(--border)", border: "2px solid #fff", width: 10, height: 10 }} />
+      </div>{/* end inner clip wrapper */}
+
+      {/* Top — primary incoming */}
+      <Handle type="target" position={Position.Top}    style={{ background: "var(--border)", border: "2px solid #fff", width: 10, height: 10 }} />
+      {/* Bottom — primary outgoing */}
       <Handle type="source" position={Position.Bottom} style={{ background: color, border: "2px solid #fff", width: 10, height: 10 }} />
+      {/* Left — side source + target (show on hover) */}
+      <Handle
+        id="left-source"
+        type="source"
+        position={Position.Left}
+        style={{ background: color, border: "2px solid #fff", width: 8, height: 8, opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}
+      />
+      <Handle
+        id="left-target"
+        type="target"
+        position={Position.Left}
+        style={{ background: "var(--border)", border: "2px solid #fff", width: 8, height: 8, top: "calc(50% + 6px)", opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}
+      />
+      {/* Right — side source + target (show on hover) */}
+      <Handle
+        id="right-source"
+        type="source"
+        position={Position.Right}
+        style={{ background: color, border: "2px solid #fff", width: 8, height: 8, opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}
+      />
+      <Handle
+        id="right-target"
+        type="target"
+        position={Position.Right}
+        style={{ background: "var(--border)", border: "2px solid #fff", width: 8, height: 8, top: "calc(50% + 6px)", opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}
+      />
     </div>
   );
 }

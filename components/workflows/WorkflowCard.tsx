@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Play, Edit2, Share2, Calendar, RefreshCw, Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Zap, Copy, Check } from "lucide-react";
+import { Play, Edit2, Share2, Calendar, RefreshCw, Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Zap, Copy, Check, Trash2 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { WorkflowCard as WorkflowCardType } from "@/lib/types";
 
@@ -60,17 +60,12 @@ function ChainBadge({ chain }: { chain: WorkflowCardType["agentChain"] }) {
 interface WorkflowCardProps {
   workflow: WorkflowCardType;
   onDuplicate?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
-export default function WorkflowCardComponent({ workflow, onDuplicate }: WorkflowCardProps) {
-  const [saved, setSaved] = useState(false);
+export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete }: WorkflowCardProps) {
   const [shared, setShared] = useState(false);
   const [duplicated, setDuplicated] = useState(false);
-
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
 
   const handleShare = () => {
     const url = `${window.location.origin}/workflows/${workflow.id}/edit`;
@@ -91,87 +86,104 @@ export default function WorkflowCardComponent({ workflow, onDuplicate }: Workflo
       className="rounded-xl p-4 flex flex-col gap-3 transition-all hover:shadow-sm"
       style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Zap size={13} style={{ color: "var(--accent)" }} strokeWidth={1.5} />
+      {/* Header + body: icon pinned left, all content aligned in one column */}
+      <div className="flex items-start gap-2">
+        <Zap size={18} className="shrink-0 mt-0.5" style={{ color: "var(--accent)", fill: "var(--accent)" }} strokeWidth={1.5} />
+
+        <div className="flex-1 min-w-0 flex flex-col gap-2">
+          {/* Title row */}
+          <div className="flex items-start justify-between gap-2">
             <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
               {workflow.name}
             </h3>
+            <span
+              className="text-xs px-2 py-0.5 rounded-full shrink-0"
+              style={{ background: "rgba(5,150,105,0.08)", color: "var(--success)", border: "1px solid rgba(5,150,105,0.2)" }}
+            >
+              Success
+            </span>
           </div>
+
+          {/* Description */}
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
             {workflow.description}
           </p>
-        </div>
-        <span
-          className="text-xs px-2 py-0.5 rounded-full shrink-0"
-          style={{ background: "rgba(5,150,105,0.08)", color: "var(--success)", border: "1px solid rgba(5,150,105,0.2)" }}
-        >
-          Success
-        </span>
-      </div>
 
-      {/* Agent chain */}
-      <ChainBadge chain={workflow.agentChain} />
+          {/* Agent chain */}
+          <ChainBadge chain={workflow.agentChain} />
 
-      {/* Meta */}
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
-          {workflow.schedule === "auto" ? (
-            <><RefreshCw size={11} />Auto — {workflow.scheduleLabel}</>
-          ) : (
-            <><Calendar size={11} />Manual-Update</>
-          )}
+          {/* Meta */}
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+              {workflow.schedule === "auto" ? (
+                <><RefreshCw size={11} />Auto — {workflow.scheduleLabel}</>
+              ) : (
+                <><Calendar size={11} />Manual-Update</>
+              )}
+            </div>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Last run: {workflow.lastRun} · #{workflow.runCount} runs
+            </p>
+          </div>
         </div>
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Last run: {workflow.lastRun} · #{workflow.runCount} runs
-        </p>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2 pt-2 flex-wrap" style={{ borderTop: "1px solid var(--border)" }}>
-        <Link
-          href={`/workflows/${workflow.id}/run`}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
-          style={{ background: "#2891DA", color: "white" }}
-        >
-          <Play size={11} fill="white" />
-          Run Now
-        </Link>
-        <Link
-          href={`/workflows/${workflow.id}/edit`}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-black/5"
-          style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}
-        >
-          <Edit2 size={11} />
-          Edit
-        </Link>
-        <button
-          onClick={handleSave}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-black/5"
-          style={{ color: saved ? "var(--success)" : "var(--text-muted)", border: `1px solid ${saved ? "rgba(5,150,105,0.3)" : "var(--border)"}` }}
-        >
-          {saved ? <Check size={11} /> : null}
-          {saved ? "Saved!" : "Save"}
-        </button>
-        <button
-          onClick={handleDuplicate}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-black/5"
-          style={{ color: duplicated ? "var(--accent)" : "var(--text-muted)" }}
-        >
-          <Copy size={11} />
-          {duplicated ? "Duplicated!" : "Duplicate"}
-        </button>
-        <button
-          onClick={handleShare}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-black/5 ml-auto"
-          style={{ color: shared ? "var(--success)" : "var(--text-muted)" }}
-          title="Copy link to clipboard"
-        >
-          {shared ? <Check size={11} /> : <Share2 size={11} />}
-          {shared ? "Copied!" : "Share"}
-        </button>
+      <div className="flex items-stretch gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+
+        {/* Left group: Run Now (tall) + Edit/Delete stacked */}
+        <div className="flex gap-2">
+          <Link
+            href={`/workflows/${workflow.id}/run`}
+            className="flex flex-col items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
+            style={{ background: "#2891DA", color: "white", width: 90, minHeight: 72 }}
+          >
+            <Play size={15} fill="white" />
+            Run Now
+          </Link>
+
+          <div className="flex flex-col gap-2">
+            <Link
+              href={`/workflows/${workflow.id}/edit`}
+              className="flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-black/5 flex-1"
+              style={{ color: "var(--text-secondary)", border: "1px solid var(--border)", width: 90, minHeight: 32 }}
+            >
+              <Edit2 size={13} />
+              Edit
+            </Link>
+            {onDelete && (
+              <button
+                onClick={() => onDelete(workflow.id)}
+                className="flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-red-50 flex-1"
+                style={{ color: "var(--text-muted)", border: "1px solid var(--border)", width: 90, minHeight: 32 }}
+              >
+                <Trash2 size={13} />
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Right group: Duplicate + Share stacked, pushed to the right */}
+        <div className="flex flex-col gap-2 ml-auto">
+          <button
+            onClick={handleDuplicate}
+            className="flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-black/5 flex-1"
+            style={{ color: duplicated ? "var(--accent)" : "var(--text-muted)", border: `1px solid ${duplicated ? "rgba(40,145,218,0.3)" : "var(--border)"}`, width: 110, minHeight: 32 }}
+          >
+            <Copy size={13} />
+            {duplicated ? "Duplicated!" : "Duplicate"}
+          </button>
+          <button
+            onClick={handleShare}
+            className="flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-black/5 flex-1"
+            style={{ color: shared ? "var(--success)" : "var(--text-muted)", border: `1px solid ${shared ? "rgba(5,150,105,0.3)" : "var(--border)"}`, width: 110, minHeight: 32 }}
+          >
+            {shared ? <Check size={13} /> : <Share2 size={13} />}
+            {shared ? "Copied!" : "Share"}
+          </button>
+        </div>
+
       </div>
     </div>
   );

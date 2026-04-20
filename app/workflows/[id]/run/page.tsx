@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { CheckCircle, Clock, Loader, Circle } from "lucide-react";
 import { workflowRun } from "@/lib/mock-data";
 import { WorkflowRunStep } from "@/lib/types";
-import ChatInput from "@/components/chat/ChatInput";
 
 function StepStatusIcon({ status }: { status: WorkflowRunStep["status"] }) {
   if (status === "done")
@@ -232,26 +231,6 @@ export default function WorkflowRunPage() {
               </div>
             );
           })}
-
-        {/* Inline chat */}
-        <div
-          className="rounded-xl overflow-hidden"
-          style={{ border: "1px solid var(--border)" }}
-        >
-          <div
-            className="px-4 py-2.5 text-sm font-medium"
-            style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}
-          >
-            💬 Ask about this run
-          </div>
-          <div className="p-4">
-            <ChatInput
-              placeholder="Why was Humana classified as at-risk?"
-              onSubmit={() => {}}
-              compact
-            />
-          </div>
-        </div>
 
         <div className="h-4" />
       </div>

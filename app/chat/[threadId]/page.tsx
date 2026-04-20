@@ -7,7 +7,9 @@ import { saveThreadMessages, loadThreadMessages } from "@/lib/chat-history";
 import { Pin, AlertCircle, ChevronDown, CheckCircle, Loader2 } from "lucide-react";
 import ChatInput from "@/components/chat/ChatInput";
 import ChatMessageComponent from "@/components/chat/ChatMessage";
-import { ChatMessage, ChatThread } from "@/lib/types";
+import PlanCard from "@/components/chat/PlanCard";
+import { ChatMessage, ChatThread, Plan, PlanStep, PlanStepStatus, AgentType, WorkflowCard, AgentStep } from "@/lib/types";
+import { saveWorkflow } from "@/lib/workflow-storage";
 import type { DispatchEvent, FormattedResponse, AgentArtifact } from "@/src/types/agent";
 import { parseForecastNarrative } from "@/src/components/artifacts/ForecastArtifact";
 import { fromV2ClusterData, fromResultTable, parseClusteringNarrative } from "@/src/components/artifacts/SegmentationArtifact";
@@ -430,6 +432,64 @@ function parseSSELine(line: string): DispatchEvent | null {
   }
 }
 
+// ── Workflow helpers ──────────────────────────────────────────────────────────
+
+/** Map a human-readable routedTo label back to an AgentType for icon lookup */
+function routedToAgentType(routedTo: string): AgentType {
+  if (/Forecast.*Prophet/i.test(routedTo))      return "prophet";
+  if (/Forecast.*SARIMA/i.test(routedTo))        return "sarima";
+  if (/Forecast.*Holt/i.test(routedTo))          return "holt-winters";
+  if (/Forecast.*XGBoost/i.test(routedTo))       return "xgboost";
+  if (/Forecast.*Auto/i.test(routedTo))          return "auto-forecast";
+  if (/Forecast.*Hybrid/i.test(routedTo))        return "hybrid";
+  if (/Forecast/i.test(routedTo))                return "sri-forecast";
+  if (/Clustering.*GMM/i.test(routedTo))         return "gmm";
+  if (/Clustering.*K-Means/i.test(routedTo))     return "kmeans";
+  if (/Clustering.*K-Medoids/i.test(routedTo))   return "kmedoids";
+  if (/Clustering.*DBSCAN/i.test(routedTo))      return "dbscan";
+  if (/Clustering.*Hierarchical/i.test(routedTo)) return "hierarchical";
+  if (/Clustering/i.test(routedTo))              return "sri-clustering";
+  if (/Meta Tree/i.test(routedTo))               return "sri-mtree";
+  if (/Causal/i.test(routedTo))                  return "sri-causal";
+  return "sri-analyst"; // SRI Analytics Engine / Analyst / unknown
+}
+
+/** Build a WorkflowCard from the current thread's message history */
+function buildWorkflowCard(
+  threadId: string,
+  title: string,
+  messages: ChatMessage[],
+): WorkflowCard {
+  const agentChain: AgentStep[] = messages
+    .filter((m) => m.role === "agent" && m.agentActivity && !m.plan)
+    .map((m, i) => {
+      const type = routedToAgentType(m.agentActivity!.routedTo);
+      // Find the last user message that appears before this agent message in the full list
+      const msgIndex = messages.indexOf(m);
+      const userPrompt = [...messages.slice(0, msgIndex)]
+        .reverse()
+        .find((msg) => msg.role === "user" && !msg.plan)?.content;
+      return {
+        id:     `step-${i}`,
+        type,
+        label:  m.agentActivity!.routedTo,
+        icon:   type,
+        prompt: userPrompt,
+      };
+    });
+
+  return {
+    id:          `wf-${threadId}-${Date.now()}`,
+    name:        title || "Untitled Workflow",
+    description: `Saved from chat on ${new Date().toLocaleDateString()}`,
+    agentChain,
+    schedule:    "manual",
+    lastRun:     "—",
+    status:      "success",
+    runCount:    0,
+  };
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function ThreadPage() {
   const params   = useParams();
@@ -442,6 +502,7 @@ export default function ThreadPage() {
   const [sqlMap,  setSqlMap]  = useState<Record<string, string>>({});
   const [savingWf, setSavingWf] = useState(false);
   const [savedWf,  setSavedWf]  = useState(false);
+  const [planLoading, setPlanLoading] = useState(false);
 
   const sessionIdRef    = useRef<string>(threadId);
   const bottomRef       = useRef<HTMLDivElement>(null);
@@ -490,8 +551,22 @@ export default function ThreadPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
+  // Fire pending plan from home page (Ctrl+Shift+Enter on the home ChatInput)
+  useEffect(() => {
+    const key     = `pendingPlan:${threadId}`;
+    const pending = sessionStorage.getItem(key);
+    if (pending) {
+      sessionStorage.removeItem(key);
+      handlePlan(pending);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId]);
+
   // ── Core submit handler: POST → SSE stream ─────────────────────────────────
-  const handleSubmit = useCallback(async (query: string) => {
+  const handleSubmit = useCallback(async (
+    query: string,
+    opts?: { skipUserMessage?: boolean; planStepId?: string; rethrowErrors?: boolean },
+  ) => {
     setError(null);
 
     const userMsg: ChatMessage = {
@@ -500,18 +575,20 @@ export default function ThreadPage() {
       content: query,
     };
 
-    // Persist to left-rail history on the first message (outside setState)
-    if (!hasPersistedRef.current) {
-      hasPersistedRef.current = true;
-      titleRef.current = query.slice(0, 60);
-      upsertThread(threadId, titleRef.current);
-    }
+    if (!opts?.skipUserMessage) {
+      // Persist to left-rail history on the first message (outside setState)
+      if (!hasPersistedRef.current) {
+        hasPersistedRef.current = true;
+        titleRef.current = query.slice(0, 60);
+        upsertThread(threadId, titleRef.current);
+      }
 
-    setThread((prev) => ({
-      ...prev,
-      title:    prev.messages.length === 0 ? query.slice(0, 60) : prev.title,
-      messages: [...prev.messages, userMsg],
-    }));
+      setThread((prev) => ({
+        ...prev,
+        title:    prev.messages.length === 0 ? query.slice(0, 60) : prev.title,
+        messages: [...prev.messages, userMsg],
+      }));
+    }
 
     setStreaming(true);
     setStreamStatus("Routing query…");
@@ -628,6 +705,9 @@ export default function ThreadPage() {
 
       const { msg, sql } = buildAgentMessage(agentMsgId, finalResponse);
 
+      // Tag the agent message with the plan step that triggered it (if any)
+      if (opts?.planStepId) msg.planStepId = opts.planStepId;
+
       if (sql) {
         setSqlMap((prev) => ({ ...prev, [agentMsgId]: sql }));
       }
@@ -640,6 +720,8 @@ export default function ThreadPage() {
       // AbortError = user clicked Stop — clear state silently
       if (err instanceof Error && err.name === "AbortError") {
         setStreamStatus("Stopped.");
+      } else if (opts?.rethrowErrors) {
+        throw err;
       } else {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -653,21 +735,140 @@ export default function ThreadPage() {
     abortRef.current?.abort();
   }, []);
 
+  // ── Planning mode ──────────────────────────────────────────────────────────
+
+  /** Execute a plan sequentially, updating step statuses as each step runs */
+  const executePlan = useCallback(async (plan: Plan) => {
+    const planId = plan.id;
+
+    const mutatePlan = (updater: (p: Plan) => Plan) => {
+      setThread((prev) => ({
+        ...prev,
+        messages: prev.messages.map((m) => {
+          if (!m.plan || m.plan.id !== planId) return m;
+          return { ...m, plan: updater(m.plan) };
+        }),
+      }));
+    };
+
+    const setStepStatus = (stepId: string, status: PlanStepStatus, errorMessage?: string) => {
+      mutatePlan((p) => ({
+        ...p,
+        steps: p.steps.map((s) => (s.id === stepId ? { ...s, status, errorMessage } : s)),
+      }));
+    };
+
+    for (let i = 0; i < plan.steps.length; i++) {
+      const step = plan.steps[i];
+
+      // Mark plan as executing at this index
+      mutatePlan((p) => ({ ...p, executing: true, executingIndex: i }));
+      setStepStatus(step.id, "running");
+
+      try {
+        await handleSubmit(step.message, {
+          skipUserMessage: true,
+          planStepId: step.id,
+          rethrowErrors: true,
+        });
+        setStepStatus(step.id, "done");
+      } catch (err) {
+        setStepStatus(step.id, "error", err instanceof Error ? err.message : String(err));
+        mutatePlan((p) => ({ ...p, executing: false, executingIndex: null }));
+        return;
+      }
+    }
+
+    // All steps finished
+    mutatePlan((p) => ({ ...p, executing: false, executingIndex: null }));
+  }, [handleSubmit]);
+
+  /** Generate a plan from a user prompt and insert it as a plan-card message */
+  const handlePlan = useCallback(async (message: string) => {
+    if (!message.trim()) return;
+    setPlanLoading(true);
+    setError(null);
+
+    // Ensure thread is persisted before we add messages
+    if (!hasPersistedRef.current) {
+      hasPersistedRef.current = true;
+      titleRef.current = message.slice(0, 60);
+      upsertThread(threadId, titleRef.current);
+    }
+
+    // Immediately show the user message
+    const userMsgId = `msg-${Date.now()}-u`;
+    setThread((prev) => ({
+      ...prev,
+      title: prev.messages.length === 0 ? message.slice(0, 60) : prev.title,
+      messages: [
+        ...prev.messages,
+        { id: userMsgId, role: "user" as const, content: message.trim() },
+      ],
+    }));
+
+    try {
+      const res = await fetch("/api/agent/plan", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ message: message.trim() }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Plan generation failed" })) as { error?: string };
+        throw new Error(errData.error ?? `HTTP ${res.status}`);
+      }
+
+      const data = await res.json() as { plan: { steps: { title: string; description: string; message: string }[] } };
+
+      const plan: Plan = {
+        id:             crypto.randomUUID(),
+        originalPrompt: message.trim(),
+        executing:      false,
+        executingIndex: null,
+        steps: data.plan.steps.map((s): PlanStep => ({
+          id:          crypto.randomUUID(),
+          title:       s.title,
+          description: s.description,
+          message:     s.message,
+          status:      "pending",
+        })),
+      };
+
+      const planMsgId = `msg-${Date.now()}-plan`;
+      setThread((prev) => ({
+        ...prev,
+        messages: [
+          ...prev.messages,
+          { id: planMsgId, role: "agent" as const, content: "", plan },
+        ],
+      }));
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPlanLoading(false);
+    }
+  }, [threadId, upsertThread]);
+
   // ── Save session as workflow ────────────────────────────────────────────────
-  const handleSaveWorkflow = async () => {
-    if (savingWf || savedWf) return;
+  const handleSaveWorkflow = () => {
+    if (savingWf || savedWf || thread.messages.length === 0) return;
     setSavingWf(true);
     try {
-      const res = await fetch("/api/workflows/from-chat", {
+      const wf = buildWorkflowCard(threadId, thread.title, thread.messages);
+      saveWorkflow(wf);
+      setSavedWf(true);
+      // Best-effort Snowflake persistence in background
+      fetch("/api/workflows/from-chat", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId: sessionIdRef.current,
-          name:      thread.title || "Untitled Workflow",
+          sessionId:   sessionIdRef.current,
+          name:        thread.title || "Untitled Workflow",
           description: `Saved from chat session ${threadId}`,
         }),
-      });
-      if (res.ok) setSavedWf(true);
+      }).catch(() => { /* non-critical */ });
     } catch {
       // non-critical
     } finally {
@@ -689,7 +890,7 @@ export default function ThreadPage() {
           onClick={handleSaveWorkflow}
           disabled={savingWf || thread.messages.length === 0}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-90 shrink-0 disabled:opacity-40"
-          style={{ background: savedWf ? "var(--success, #22c55e)" : "#FFA550", color: "#1C1A16" }}
+          style={{ background: savedWf ? "var(--success, #22c55e)" : "#FFA550", color: savedWf ? "#ffffff" : "#1C1A16" }}
         >
           {savingWf ? (
             <><Loader2 size={12} className="animate-spin" />Saving…</>
@@ -720,16 +921,42 @@ export default function ThreadPage() {
           </div>
         )}
 
-        {thread.messages.map((msg) => (
-          <div key={msg.id}>
-            <ChatMessageComponent message={msg} onFollowup={handleSubmit} />
-            {msg.role === "agent" && sqlMap[msg.id] && (
-              <div className="ml-9 mt-1">
-                <SQLBadge sql={sqlMap[msg.id]} />
+        {thread.messages.map((msg) => {
+          // Plan-card message — renders the editable plan UI
+          if (msg.plan) {
+            return (
+              <div key={msg.id}>
+                <PlanCard
+                  plan={msg.plan}
+                  onPlanChange={(updated) =>
+                    setThread((prev) => ({
+                      ...prev,
+                      messages: prev.messages.map((m) =>
+                        m.id === msg.id ? { ...m, plan: updated } : m
+                      ),
+                    }))
+                  }
+                  onExecute={executePlan}
+                  isExecuting={streaming}
+                />
               </div>
-            )}
-          </div>
-        ))}
+            );
+          }
+
+          return (
+            <div key={msg.id}>
+              <ChatMessageComponent message={msg} onFollowup={handleSubmit} />
+              {msg.role === "agent" && sqlMap[msg.id] && (
+                <div className="ml-9 mt-1">
+                  <SQLBadge sql={sqlMap[msg.id]} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Plan generation status */}
+        {planLoading && <StreamingStatus status="Generating plan…" />}
 
         {/* Streaming status */}
         {streaming && <StreamingStatus status={streamStatus} />}
@@ -757,12 +984,13 @@ export default function ThreadPage() {
           placeholder="Ask a follow-up…"
           onSubmit={handleSubmit}
           onAbort={handleAbort}
+          onPlan={handlePlan}
           history={thread.messages
             .filter((m) => m.role === "user")
             .map((m) => m.content)
             .reverse()}
           compact
-          disabled={streaming}
+          disabled={streaming || planLoading}
         />
       </div>
     </div>

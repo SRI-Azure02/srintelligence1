@@ -29,6 +29,13 @@ export default function ChatHome() {
     router.push(`/chat/${id}`);
   };
 
+  const handlePlan = (query: string) => {
+    const id = newThreadId();
+    // Stash as a pending plan so the thread page calls handlePlan instead of handleSubmit
+    sessionStorage.setItem(`pendingPlan:${id}`, query);
+    router.push(`/chat/${id}`);
+  };
+
   return (
     <div className="flex flex-col h-full" style={{ background: "var(--bg-primary)" }}>
       {/* Center content */}
@@ -80,6 +87,7 @@ export default function ChatHome() {
         <ChatInput
           placeholder="Ask a question about your data…"
           onSubmit={handleSubmit}
+          onPlan={handlePlan}
           autoFocus
         />
       </div>

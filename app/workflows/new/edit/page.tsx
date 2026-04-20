@@ -21,7 +21,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import AgentNode from "@/components/workflows/nodes/AgentNode";
 import OutputNode from "@/components/workflows/nodes/OutputNode";
-import { semanticModels, agentPalette } from "@/lib/mock-data";
+import { agentPalette } from "@/lib/mock-data";
 
 const nodeTypes = { agentNode: AgentNode, outputNode: OutputNode };
 
@@ -208,22 +208,28 @@ function computeStepNumbers(nodes: Node[], edges: Edge[]): Map<string, number> {
 }
 
 // NodeDetailDrawer for new workflow
+interface SemanticView { id: string; displayName: string; }
+
 interface NodeDetailDrawerProps {
   node: Node;
   onClose: () => void;
   onUpdateNode: (id: string, data: Record<string, unknown>) => void;
+  semanticViews: SemanticView[];
 }
 
-function NodeDetailDrawer({ node, onClose, onUpdateNode }: NodeDetailDrawerProps) {
+function NodeDetailDrawer({ node, onClose, onUpdateNode, semanticViews }: NodeDetailDrawerProps) {
   const d = node.data as Record<string, unknown>;
   const [prompt, setPrompt] = useState((d.prompt as string) ?? "");
   const [agentType, setAgentType] = useState((d.agentType as string) ?? "sri-forecast");
   const [outputFormat, setOutputFormat] = useState((d.outputFormat as string) ?? "Full Table");
-  const [semanticModelId, setSemanticModelId] = useState((d.semanticModel as string) ?? semanticModels[0].name);
+  const [semanticModelId, setSemanticModelId] = useState((d.semanticModel as string) ?? "");
 
   const handleApply = () => {
     onUpdateNode(node.id, { ...d, prompt, agentType, outputFormat, semanticModel: semanticModelId });
   };
+
+  const sel = "w-full rounded-lg px-3 py-2 text-xs outline-none";
+  const selStyle = { background: "var(--bg-tertiary)", border: "1px solid var(--border)", color: "var(--text-primary)" };
 
   return (
     <div className="h-full flex flex-col overflow-y-auto shrink-0" style={{ background: "var(--bg-secondary)", borderLeft: "1px solid var(--border)", width: 270 }}>
@@ -238,29 +244,27 @@ function NodeDetailDrawer({ node, onClose, onUpdateNode }: NodeDetailDrawerProps
           <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-muted)" }}>Prompt / Instructions</label>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4}
             className="w-full rounded-lg px-3 py-2 text-xs resize-none outline-none"
-            style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
+            style={{ ...selStyle, fontFamily: "inherit" }} />
         </div>
         <div>
           <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-muted)" }}>Algorithm</label>
-          <select value={agentType} onChange={(e) => setAgentType(e.target.value)}
-            className="w-full rounded-lg px-3 py-2 text-xs outline-none"
-            style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}>
+          <select value={agentType} onChange={(e) => setAgentType(e.target.value)} className={sel} style={selStyle}>
             {agentPalette.map((a) => <option key={a.type} value={a.type}>{a.label}</option>)}
           </select>
         </div>
         <div>
           <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-muted)" }}>Semantic Model</label>
-          <select value={semanticModelId} onChange={(e) => setSemanticModelId(e.target.value)}
-            className="w-full rounded-lg px-3 py-2 text-xs outline-none"
-            style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}>
-            {semanticModels.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
-          </select>
+          {semanticViews.length === 0 ? (
+            <p className="text-xs px-3 py-2 rounded-lg" style={{ ...selStyle, color: "var(--text-muted)" }}>Loading…</p>
+          ) : (
+            <select value={semanticModelId || semanticViews[0].id} onChange={(e) => setSemanticModelId(e.target.value)} className={sel} style={selStyle}>
+              {semanticViews.map((v) => <option key={v.id} value={v.id}>{v.displayName}</option>)}
+            </select>
+          )}
         </div>
         <div>
           <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-muted)" }}>Output Format</label>
-          <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)}
-            className="w-full rounded-lg px-3 py-2 text-xs outline-none"
-            style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}>
+          <select value={outputFormat} onChange={(e) => setOutputFormat(e.target.value)} className={sel} style={selStyle}>
             <option>Full Table</option><option>Summary Only</option><option>Chart</option><option>Narrative</option>
           </select>
         </div>
@@ -346,6 +350,18 @@ export default function NewWorkflowPage() {
   const [autoUpdate, setAutoUpdate] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [semanticViews, setSemanticViews] = useState<SemanticView[]>([]);
+
+  useEffect(() => {
+    fetch("/api/semantic-views")
+      .then((r) => r.json())
+      .then((data: { views?: { id: string; displayName: string }[] }) => {
+        if (Array.isArray(data.views)) {
+          setSemanticViews(data.views.map((v) => ({ id: v.id, displayName: v.displayName })));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Undo/redo
   const [history, setHistory] = useState<{ nodes: Node[]; edges: Edge[] }[]>([]);
@@ -602,7 +618,7 @@ export default function NewWorkflowPage() {
 
         {/* Config pane when node selected */}
         {selectedNode ? (
-          <NodeDetailDrawer node={selectedNode} onClose={() => setSelectedNode(null)} onUpdateNode={updateNodeData} />
+          <NodeDetailDrawer node={selectedNode} onClose={() => setSelectedNode(null)} onUpdateNode={updateNodeData} semanticViews={semanticViews} />
         ) : (
           <AgentPalette onAdd={handleAddAgent} />
         )}

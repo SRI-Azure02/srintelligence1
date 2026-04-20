@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Plus, Pin, LayoutGrid, Wrench, X } from "lucide-react";
 import WorkflowCardComponent from "@/components/workflows/WorkflowCard";
-import { workflows as initialWorkflows } from "@/lib/mock-data";
 import { WorkflowCard } from "@/lib/types";
+import { loadSavedWorkflows, deleteWorkflow } from "@/lib/workflow-storage";
 
 function TemplatePickerModal({ workflows, onClose }: { workflows: WorkflowCard[]; onClose: () => void }) {
   return (
@@ -60,7 +60,15 @@ function TemplatePickerModal({ workflows, onClose }: { workflows: WorkflowCard[]
 
 export default function WorkflowsPage() {
   const [showTemplate, setShowTemplate] = useState(false);
-  const [workflows, setWorkflows] = useState<WorkflowCard[]>(initialWorkflows);
+  const [workflows, setWorkflows] = useState<WorkflowCard[]>([]);
+
+  // Load from localStorage after hydration, and refresh on updates from chat
+  useEffect(() => {
+    setWorkflows(loadSavedWorkflows());
+    const handleUpdate = () => setWorkflows(loadSavedWorkflows());
+    window.addEventListener("sri_workflows_updated", handleUpdate);
+    return () => window.removeEventListener("sri_workflows_updated", handleUpdate);
+  }, []);
 
   const handleDuplicate = (id: string) => {
     const source = workflows.find((w) => w.id === id);
@@ -81,6 +89,11 @@ export default function WorkflowsPage() {
     });
   };
 
+  const handleDelete = (id: string) => {
+    deleteWorkflow(id);
+    setWorkflows((prev) => prev.filter((w) => w.id !== id));
+  };
+
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: "var(--bg-primary)" }}>
       <div className="px-5 py-5 w-full flex flex-col gap-5">
@@ -99,8 +112,20 @@ export default function WorkflowsPage() {
 
         {/* Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {workflows.length === 0 && (
+            <div
+              className="lg:col-span-2 flex flex-col items-center justify-center py-16 rounded-xl gap-3"
+              style={{ border: "1.5px dashed var(--border)", color: "var(--text-muted)" }}
+            >
+              <Pin size={28} strokeWidth={1.5} />
+              <p className="text-sm font-medium">No saved workflows yet</p>
+              <p className="text-xs text-center max-w-xs">
+                Open a chat session, run some analysis, then click <strong>Save as Workflow</strong> in the chat header.
+              </p>
+            </div>
+          )}
           {workflows.map((wf) => (
-            <WorkflowCardComponent key={wf.id} workflow={wf} onDuplicate={handleDuplicate} />
+            <WorkflowCardComponent key={wf.id} workflow={wf} onDuplicate={handleDuplicate} onDelete={handleDelete} />
           ))}
 
           {/* New Workflow card */}
