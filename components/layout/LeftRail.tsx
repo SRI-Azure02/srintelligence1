@@ -82,15 +82,15 @@ export default function LeftRail({ collapsed = false, narrow = false, onToggleCo
     .filter((g) => g.items.length > 0);
 
   // Shared nav item layout: always flex-row, icon + label
-  const navItemClass = `flex items-center rounded-lg transition-colors px-2 py-2 ${
-    collapsed || narrow ? "justify-center" : "gap-2.5"
+  const navItemClass = `flex items-center rounded-lg transition-colors px-2 py-2.5 ${
+    collapsed || narrow ? "justify-center" : "gap-3"
   }`;
 
   return (
     <aside style={{ background: "var(--bg-secondary)" }} className="flex flex-col h-full w-full overflow-hidden">
 
       {/* Nav items */}
-      <nav className="flex flex-col pt-3 pb-1 px-2 gap-0.5">
+      <nav className="flex flex-col pt-3 pb-1 px-2 gap-1">
         {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
@@ -103,10 +103,10 @@ export default function LeftRail({ collapsed = false, narrow = false, onToggleCo
                 ? { background: "var(--accent-dim)", color: "var(--accent)" }
                 : { color: "var(--text-muted)" }}
             >
-              <Icon size={18} />
+              <Icon size={22} />
               {!collapsed && (
                 <span style={{
-                  fontSize: narrow ? "10px" : "12px",
+                  fontSize: narrow ? "11px" : "13px",
                   fontWeight: 500,
                   letterSpacing: "0.01em",
                   whiteSpace: "nowrap",
@@ -238,7 +238,7 @@ export default function LeftRail({ collapsed = false, narrow = false, onToggleCo
           style={{ color: "var(--text-muted)", width: "100%" }}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          {collapsed ? <PanelLeftOpen size={22} /> : <PanelLeftClose size={22} />}
           {!collapsed && (
             <span style={{
               fontSize: narrow ? "10px" : "12px",

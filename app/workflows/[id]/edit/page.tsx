@@ -32,9 +32,9 @@ const MINUTES = ["00", "15", "30", "45"];
 function VerticalUpdateToggle({ enabled, onChange }: {
   enabled: boolean; onChange: (v: boolean) => void;
 }) {
-  const TRACK_H = 42;   // slightly taller than before
-  const KNOB    = 12;
-  const PAD     = 2;
+  const TRACK_H = 44;
+  const KNOB    = 16;
+  const PAD     = 3;
   const travel  = TRACK_H - PAD * 2 - KNOB;
 
   return (
@@ -65,7 +65,7 @@ function VerticalUpdateToggle({ enabled, onChange }: {
         title={enabled ? "Switch to Manual-Update" : "Switch to Auto-Update"}
         className="relative shrink-0 rounded-full transition-colors"
         style={{
-          width:      18,
+          width:      22,
           height:     TRACK_H,
           background: enabled ? "#2891DA" : "var(--bg-hover)",
           border:     "1px solid var(--border)",
@@ -76,9 +76,11 @@ function VerticalUpdateToggle({ enabled, onChange }: {
           style={{
             width:     KNOB,
             height:    KNOB,
-            left:      PAD,
+            left:      "50%",
             top:       PAD,
-            transform: enabled ? "translateY(0px)" : `translateY(${travel}px)`,
+            transform: enabled
+              ? "translateX(-50%) translateY(0px)"
+              : `translateX(-50%) translateY(${travel}px)`,
           }}
         />
       </button>
@@ -401,14 +403,20 @@ function CompactVersionBar({
             )}
           </>
         ) : (
-          <span style={{ fontSize: 12, color: "var(--text-muted)", position: "absolute", whiteSpace: "nowrap", left: 0 }}>
+          <span style={{
+            fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap",
+            position: "absolute", left: "50%", top: "50%",
+            transform: "translate(-50%, -50%)",
+            background: "#ffffff", padding: "0 6px",
+            zIndex: 5,
+          }}>
             No history yet
           </span>
         )}
       </div>
 
-      {/* Version detail — fixed width so the track never changes length */}
-      <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0, flexGrow: 0, width: 88, justifyContent: "flex-end", marginLeft: 8 }}>
+      {/* Version detail — shrinks to content width */}
+      <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
         {selected ? (
           <>
             {selected.bookmarked && (
@@ -435,7 +443,7 @@ function CompactVersionBar({
             )}
           </>
         ) : (
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Save to checkpoint</span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Latest</span>
         )}
       </div>
     </div>
