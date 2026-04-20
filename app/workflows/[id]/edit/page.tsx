@@ -813,10 +813,12 @@ export default function WorkflowEditPage() {
     const wf = loadSavedWorkflows().find((w) => w.id === workflowId);
     if (!wf) return;
 
-    const updated = { ...wf, name: workflowName, notes };
+    // Capture live canvas state so the persisted agentChain stays current
+    const liveChain = canvasRef.current?.getAgentChain() ?? wf.agentChain;
+    const updated = { ...wf, name: workflowName, notes, agentChain: liveChain };
     saveWorkflow(updated);
 
-    const newVer = appendVersion(workflowId, workflowName, wf.agentChain);
+    const newVer = appendVersion(workflowId, workflowName, liveChain);
     setVersions((prev) => {
       const next = [...prev, newVer];
       setSelectedVersionIdx(next.length - 1); // jump to latest

@@ -725,6 +725,8 @@ function getTopologicalOrder(nodes: Node[], edges: Edge[]): string[] {
 export interface WorkflowCanvasHandle {
   getOrderedNodeIds:   () => string[];
   getOrderedNodeMeta:  () => Array<{ id: string; agentType: string; label: string }>;
+  /** Returns the current canvas as an AgentStep[] chain for persistence. */
+  getAgentChain: () => import("@/lib/types").AgentStep[];
 }
 
 // Edge tooltip state
@@ -787,6 +789,7 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
   // Expose ordered node IDs + metadata for run simulation in parent
   useImperativeHandle(ref, () => ({
     getOrderedNodeIds: () => getTopologicalOrder(nodesRef.current, edgesRef.current),
+
     getOrderedNodeMeta: () => {
       const ordered = getTopologicalOrder(nodesRef.current, edgesRef.current);
       return ordered.map((id) => {
@@ -797,6 +800,31 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
           label:     (node?.data?.label     as string) ?? (node?.type === "outputNode" ? "Output" : id),
         };
       });
+    },
+
+    getAgentChain: () => {
+      const ordered = getTopologicalOrder(nodesRef.current, edgesRef.current);
+      let step = 1;
+      return ordered
+        .filter((id) => {
+          const n = nodesRef.current.find((x) => x.id === id);
+          return n?.type === "agentNode";
+        })
+        .map((id) => {
+          const n = nodesRef.current.find((x) => x.id === id)!;
+          const d = n.data as Record<string, unknown>;
+          return {
+            id:            n.id,
+            type:          (d.agentType  as import("@/lib/types").AgentType) ?? "sri-analyst",
+            label:         (d.label      as string) ?? "Agent",
+            prompt:        (d.prompt     as string) ?? "",
+            icon:          "",
+            runPerSegment: (d.runPerSegment as boolean) ?? false,
+            position:      n.position,
+            config:        (d.config     as Record<string, unknown>) ?? {},
+            stepNumber:    step++,
+          };
+        });
     },
   }), []);
 
