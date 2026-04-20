@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
-// removed: import Link from "next/link"
 import {
   Save, Play, Trash2, Pencil, Check,
   StickyNote, ChevronDown, FastForward, Bookmark, Trash,
@@ -17,6 +16,8 @@ import { loadVersions, appendVersion, deleteVersion, toggleBookmark } from "@/li
 import type { WorkflowVersion } from "@/lib/workflow-versions";
 import type { AgentStep } from "@/lib/types";
 import { Node, Edge } from "@xyflow/react";
+import { runStore } from "@/lib/run-store";
+import { useActiveRun } from "@/lib/use-run-store";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type ScheduleType = "daily" | "weekly" | "monthly";
@@ -759,12 +760,12 @@ export default function WorkflowEditPage() {
   const [editingName,  setEditingName]  = useState(false);
   const [nameHovered,  setNameHovered]  = useState(false);
 
-  // Run simulation
-  const [isRunning,     setIsRunning]     = useState(false);
-  const [runNodeStates, setRunNodeStates] = useState<Record<string, RunNodeStatus>>({});
-  const [reportNode,    setReportNode]    = useState<{ nodeId: string; agentType: string; label: string } | null>(null);
-  const canvasRef   = useRef<WorkflowCanvasHandle>(null);
-  const runTimerRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // Run — backed by the global singleton so timers survive navigation
+  const activeRun   = useActiveRun(workflowId);
+  const isRunning   = !!activeRun;
+  const runNodeStates = (activeRun?.nodeStates ?? {}) as Record<string, RunNodeStatus>;
+  const [reportNode, setReportNode] = useState<{ nodeId: string; agentType: string; label: string } | null>(null);
+  const canvasRef = useRef<WorkflowCanvasHandle>(null);
 
   const fmtDate = (iso?: string) =>
     iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : null;
@@ -856,45 +857,26 @@ export default function WorkflowEditPage() {
 
   // ── Run / Abort ───────────────────────────────────────────────────────────
   const handleRun = useCallback(() => {
+    if (!workflowId) return;
+
     if (isRunning) {
-      // Abort
-      runTimerRef.current.forEach(clearTimeout);
-      runTimerRef.current = [];
-      setIsRunning(false);
-      setRunNodeStates({});
+      runStore.abortRun(workflowId);
       return;
     }
 
-    const nodeIds = canvasRef.current?.getOrderedNodeIds() ?? [];
-    if (!nodeIds.length) return;
+    // Gather ordered node IDs + metadata from the canvas
+    const orderedIds = canvasRef.current?.getOrderedNodeIds() ?? [];
+    if (!orderedIds.length) return;
 
-    setIsRunning(true);
-    // Mark all nodes pending immediately
-    const initial: Record<string, RunNodeStatus> = {};
-    nodeIds.forEach((id) => { initial[id] = "pending"; });
-    setRunNodeStates(initial);
+    // Build node metadata list (agentType + label from canvas node data)
+    const nodeMeta = canvasRef.current?.getOrderedNodeMeta?.() ?? orderedIds.map((id) => ({
+      id,
+      agentType: "sri-analyst",
+      label: id,
+    }));
 
-    // Sequential execution — each node runs for 1.5–3.5s
-    let elapsed = 0;
-    nodeIds.forEach((id, i) => {
-      const duration = 1500 + Math.random() * 2000;
-
-      const tStart = setTimeout(() => {
-        setRunNodeStates((prev) => ({ ...prev, [id]: "running" }));
-      }, elapsed);
-
-      const tDone = setTimeout(() => {
-        setRunNodeStates((prev) => ({ ...prev, [id]: "done" }));
-        if (i === nodeIds.length - 1) {
-          setIsRunning(false);
-          runTimerRef.current = [];
-        }
-      }, elapsed + duration);
-
-      runTimerRef.current.push(tStart, tDone);
-      elapsed += duration;
-    });
-  }, [isRunning]);
+    runStore.startRun(workflowId, workflowName, nodeMeta);
+  }, [isRunning, workflowId, workflowName]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: "#ffffff" }}>

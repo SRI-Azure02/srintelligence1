@@ -723,7 +723,8 @@ function getTopologicalOrder(nodes: Node[], edges: Edge[]): string[] {
 
 // ── Public handle exposed via forwardRef ────────────────────────────────────
 export interface WorkflowCanvasHandle {
-  getOrderedNodeIds: () => string[];
+  getOrderedNodeIds:   () => string[];
+  getOrderedNodeMeta:  () => Array<{ id: string; agentType: string; label: string }>;
 }
 
 // Edge tooltip state
@@ -783,9 +784,20 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
   nodesRef.current = nodes;
   edgesRef.current = edges;
 
-  // Expose ordered node IDs for run simulation in parent
+  // Expose ordered node IDs + metadata for run simulation in parent
   useImperativeHandle(ref, () => ({
     getOrderedNodeIds: () => getTopologicalOrder(nodesRef.current, edgesRef.current),
+    getOrderedNodeMeta: () => {
+      const ordered = getTopologicalOrder(nodesRef.current, edgesRef.current);
+      return ordered.map((id) => {
+        const node = nodesRef.current.find((n) => n.id === id);
+        return {
+          id,
+          agentType: (node?.data?.agentType as string) ?? (node?.type === "outputNode" ? "output" : "sri-analyst"),
+          label:     (node?.data?.label     as string) ?? (node?.type === "outputNode" ? "Output" : id),
+        };
+      });
+    },
   }), []);
 
   const pushHistory = useCallback(() => {
