@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from "react";
 import {
   ReactFlow,
   Background,
@@ -21,6 +21,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import AgentNode from "./nodes/AgentNode";
 import OutputNode from "./nodes/OutputNode";
+import type { RunNodeStatus } from "./nodes/AgentNode";
 import { X, Undo2, Redo2, Plus, TrendingUp, Layers, GitFork, GitPullRequestArrow, ChevronDown, Search, FileText, LayoutGrid } from "lucide-react";
 import { agentPalette } from "@/lib/mock-data";
 
@@ -695,22 +696,56 @@ function FitViewHelper({ signal }: { signal: number }) {
   return null;
 }
 
+// ── Topological order helper (used by run simulation) ────────────────────────
+function getTopologicalOrder(nodes: Node[], edges: Edge[]): string[] {
+  const inDegree = new Map<string, number>(nodes.map((n) => [n.id, 0]));
+  const children = new Map<string, string[]>(nodes.map((n) => [n.id, []]));
+  for (const e of edges) {
+    inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1);
+    children.get(e.source)?.push(e.target);
+  }
+  const queue   = nodes.filter((n) => (inDegree.get(n.id) ?? 0) === 0).map((n) => n.id);
+  const result: string[] = [];
+  const visited = new Set<string>();
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    result.push(id);
+    for (const child of children.get(id) ?? []) {
+      const deg = (inDegree.get(child) ?? 1) - 1;
+      inDegree.set(child, deg);
+      if (deg <= 0) queue.push(child);
+    }
+  }
+  return result;
+}
+
+// ── Public handle exposed via forwardRef ────────────────────────────────────
+export interface WorkflowCanvasHandle {
+  getOrderedNodeIds: () => string[];
+}
+
 // Edge tooltip state
 interface EdgeTooltip { x: number; y: number; edgeId: string }
 
 const MAX_HISTORY = 5;
 
-export default function WorkflowCanvas({
-  startEmpty = false,
-  initialNodes,
-  initialEdges,
-  toolbarOffset = 12,
-}: {
+const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
   startEmpty?: boolean;
   initialNodes?: Node[];
   initialEdges?: Edge[];
   toolbarOffset?: number;
-}) {
+  runNodeStates?: Record<string, RunNodeStatus>;
+  onViewReport?: (nodeId: string) => void;
+}>(function WorkflowCanvas({
+  startEmpty = false,
+  initialNodes,
+  initialEdges,
+  toolbarOffset = 12,
+  runNodeStates,
+  onViewReport,
+}, ref) {
   const [nodes, setNodes, onNodesChange] = useNodesState(
     initialNodes ?? (startEmpty ? [] : DEFAULT_NODES)
   );
@@ -747,6 +782,11 @@ export default function WorkflowCanvas({
   const edgesRef = useRef(edges);
   nodesRef.current = nodes;
   edgesRef.current = edges;
+
+  // Expose ordered node IDs for run simulation in parent
+  useImperativeHandle(ref, () => ({
+    getOrderedNodeIds: () => getTopologicalOrder(nodesRef.current, edgesRef.current),
+  }), []);
 
   const pushHistory = useCallback(() => {
     setHistory((h) => [...h.slice(-(MAX_HISTORY - 1)), { nodes: nodesRef.current, edges: edgesRef.current }]);
@@ -791,15 +831,27 @@ export default function WorkflowCanvas({
     onEdgesChange(changes);
   }, [onEdgesChange, pushHistory]);
 
-  // Compute step numbers from topology
+  // Stable ref for onViewReport so node callbacks don't go stale
+  const onViewReportRef = useRef(onViewReport);
+  onViewReportRef.current = onViewReport;
+
+  // Compute step numbers from topology and inject run status
   const nodesWithSteps = useMemo(() => {
     const stepMap = computeStepNumbers(nodes, edges);
-    return nodes.map((n) =>
-      n.type === "agentNode"
-        ? { ...n, data: { ...n.data, stepNumber: stepMap.get(n.id) ?? (n.data.stepNumber as number) } }
-        : n
-    );
-  }, [nodes, edges]);
+    return nodes.map((n) => {
+      const runStatus = runNodeStates?.[n.id] ?? "idle";
+      const viewReportCb = onViewReportRef.current
+        ? () => onViewReportRef.current?.(n.id)
+        : undefined;
+      if (n.type === "agentNode") {
+        return { ...n, data: { ...n.data, stepNumber: stepMap.get(n.id) ?? (n.data.stepNumber as number), runStatus, onViewReport: viewReportCb } };
+      }
+      if (n.type === "outputNode") {
+        return { ...n, data: { ...n.data, runStatus, onViewReport: viewReportCb } };
+      }
+      return n;
+    });
+  }, [nodes, edges, runNodeStates]);
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -1051,6 +1103,7 @@ export default function WorkflowCanvas({
       )}
     </div>
   );
-}
+});
 
+export default WorkflowCanvas;
 export type { Node };

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
-import { Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Pencil, Trash2, Search, AlertCircle } from "lucide-react";
+import { Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Pencil, Trash2, Search, AlertCircle, Loader, CheckCircle, Hourglass, BarChart2 } from "lucide-react";
+
+export type RunNodeStatus = "idle" | "pending" | "running" | "done";
 
 type IconComponent = React.FC<{ size?: number; style?: React.CSSProperties; strokeWidth?: number }>;
 
@@ -58,17 +60,20 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
   const { deleteElements } = useReactFlow();
   const [hovered, setHovered] = useState(false);
 
-  const agentType = (data.agentType as string) ?? "sri-forecast";
-  const color = AGENT_COLORS[agentType] ?? "#4f8ef7";
-  const label = (data.label as string) ?? "Agent";
-  const prompt = (data.prompt as string) ?? "";
-  const stepNumber = (data.stepNumber as string | number) ?? 1;
-  const runPerSegment = (data.runPerSegment as boolean) ?? false;
-  const semanticModel = (data.semanticModel as string) ?? "";
-  const AgentIcon = AGENT_ICONS[agentType] ?? TrendingUp;
+  const agentType    = (data.agentType    as string)          ?? "sri-forecast";
+  const color        = AGENT_COLORS[agentType] ?? "#4f8ef7";
+  const label        = (data.label        as string)          ?? "Agent";
+  const prompt       = (data.prompt       as string)          ?? "";
+  const stepNumber   = (data.stepNumber   as string | number) ?? 1;
+  const runPerSegment= (data.runPerSegment as boolean)        ?? false;
+  const semanticModel= (data.semanticModel as string)         ?? "";
+  const AgentIcon    = AGENT_ICONS[agentType] ?? TrendingUp;
+  const runStatus    = (data.runStatus    as RunNodeStatus)   ?? "idle";
+  const onViewReport = data.onViewReport  as (() => void)     | undefined;
 
   // A node needs attention when the prompt hasn't been filled in yet
-  const needsInput = !prompt.trim();
+  const needsInput  = !prompt.trim();
+  const isExecuting = runStatus === "running" || runStatus === "pending";
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -83,25 +88,48 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
       style={{
         width: 210,
         background: "#ffffff",
-        border: `2px solid ${selected ? color : needsInput ? "#f59e0b" : "var(--border)"}`,
-        boxShadow: selected ? `0 0 0 3px ${color}22` : needsInput ? "0 0 0 3px rgba(245,158,11,0.15)" : "0 1px 3px rgba(0,0,0,0.06)",
-        transition: "border-color 0.15s, box-shadow 0.15s",
+        border: `2px solid ${selected ? color : runStatus === "running" ? color : needsInput ? "#f59e0b" : "var(--border)"}`,
+        boxShadow: selected
+          ? `0 0 0 3px ${color}22`
+          : runStatus === "running"
+          ? `0 0 0 3px ${color}33`
+          : needsInput
+          ? "0 0 0 3px rgba(245,158,11,0.15)"
+          : "0 1px 3px rgba(0,0,0,0.06)",
+        transition: "border-color 0.2s, box-shadow 0.2s",
+        opacity: runStatus === "idle" ? 1 : 1,
       }}
     >
-      {/* Missing-input warning badge */}
-      {needsInput && (
+      {/* Run status badge — top-right corner */}
+      {runStatus === "running" && (
+        <div className="absolute flex items-center justify-center rounded-full"
+          style={{ top: -8, right: -8, width: 20, height: 20, background: "#fff", border: `2px solid ${color}`, boxShadow: "0 1px 4px rgba(0,0,0,0.15)", zIndex: 10 }}>
+          <Loader size={10} className="animate-spin" style={{ color }} />
+        </div>
+      )}
+      {runStatus === "done" && (
+        <div className="absolute flex items-center justify-center rounded-full"
+          style={{ top: -8, right: -8, width: 20, height: 20, background: "#fff", border: "2px solid #22c55e", boxShadow: "0 1px 4px rgba(0,0,0,0.15)", zIndex: 10 }}>
+          <CheckCircle size={12} style={{ color: "#22c55e" }} />
+        </div>
+      )}
+      {runStatus === "pending" && (
+        <div className="absolute flex items-center justify-center rounded-full"
+          style={{ top: -8, right: -8, width: 20, height: 20, background: "#fff", border: "2px solid var(--border)", boxShadow: "0 1px 4px rgba(0,0,0,0.10)", zIndex: 10 }}>
+          <Hourglass size={10} style={{ color: "var(--text-muted)" }} />
+        </div>
+      )}
+
+      {/* Missing-input warning badge — only when not in a run */}
+      {needsInput && runStatus === "idle" && (
         <div
           className="absolute flex items-center gap-1 px-1.5 py-0.5 rounded-full text-white"
           style={{
-            top: -10,
-            right: -10,
+            top: -10, right: -10,
             background: "#f59e0b",
-            fontSize: "9px",
-            fontWeight: 700,
-            letterSpacing: "0.02em",
+            fontSize: "9px", fontWeight: 700, letterSpacing: "0.02em",
             boxShadow: "0 1px 4px rgba(0,0,0,0.18)",
-            zIndex: 10,
-            pointerEvents: "none",
+            zIndex: 10, pointerEvents: "none",
           }}
           title="Prompt required — click node to configure"
         >
@@ -109,6 +137,7 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
           Input needed
         </div>
       )}
+
       {/* Inner wrapper clips content to rounded corners without clipping the badge */}
       <div className="rounded-xl overflow-hidden">
 
@@ -125,14 +154,13 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
           </div>
         </div>
 
-        {/* Hover: edit (bubbles to onNodeClick → opens drawer) + delete */}
-        {hovered && (
+        {/* Hover: edit + delete — hidden while executing */}
+        {hovered && !isExecuting && (
           <div className="flex items-center gap-0.5 shrink-0 ml-1">
             <button
               className="p-1 rounded hover:bg-black/8 transition-colors"
               style={{ color: "var(--text-muted)" }}
               title="Configure"
-              /* No stopPropagation — click bubbles to node → onNodeClick opens drawer */
             >
               <Pencil size={11} />
             </button>
@@ -158,18 +186,36 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
             {semanticModel}
           </span>
         )}
-        {prompt ? (
+        {/* Running shimmer */}
+        {runStatus === "running" ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="rounded animate-pulse h-2" style={{ background: `${color}25`, width: "85%" }} />
+            <div className="rounded animate-pulse h-2" style={{ background: `${color}18`, width: "60%" }} />
+          </div>
+        ) : prompt ? (
           <p className="text-xs leading-relaxed line-clamp-3" style={{ color: "var(--text-secondary)" }}>
             &ldquo;{prompt}&rdquo;
           </p>
         ) : (
           <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>Click to configure…</p>
         )}
-        {runPerSegment && (
+        {runPerSegment && runStatus === "idle" && (
           <div className="mt-2 flex items-center gap-1 text-xs" style={{ color: "#a78bfa" }}>
             <Activity size={10} />
             <span>Run per segment</span>
           </div>
+        )}
+
+        {/* View Report button — only when done */}
+        {runStatus === "done" && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onViewReport?.(); }}
+            className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-90 active:scale-95"
+            style={{ background: `${color}18`, color, border: `1px solid ${color}40`, cursor: "pointer" }}
+          >
+            <BarChart2 size={11} />
+            View Report
+          </button>
         )}
       </div>
 

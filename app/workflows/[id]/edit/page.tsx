@@ -2,12 +2,15 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
+// removed: import Link from "next/link"
 import {
   Save, Play, Trash2, Pencil, Check,
   StickyNote, ChevronDown, FastForward, Bookmark, Trash,
+  Square, X, BarChart2, CheckCircle, Loader,
 } from "lucide-react";
 import WorkflowCanvas, { edgeDefaults } from "@/components/workflows/WorkflowCanvas";
+import type { WorkflowCanvasHandle } from "@/components/workflows/WorkflowCanvas";
+import type { RunNodeStatus } from "@/components/workflows/nodes/AgentNode";
 import { loadSavedWorkflows, saveWorkflow } from "@/lib/workflow-storage";
 import { loadVersions, appendVersion, deleteVersion, toggleBookmark } from "@/lib/workflow-versions";
 import type { WorkflowVersion } from "@/lib/workflow-versions";
@@ -437,6 +440,106 @@ function CompactVersionBar({
   );
 }
 
+// ── Run Report Panel ─────────────────────────────────────────────────────────
+function RunReportPanel({
+  nodeId,
+  runNodeStates,
+  onClose,
+}: {
+  nodeId: string;
+  runNodeStates: Record<string, RunNodeStatus>;
+  onClose: () => void;
+}) {
+  const status = runNodeStates[nodeId] ?? "done";
+
+  return (
+    <div
+      className="absolute right-0 top-0 bottom-0 flex flex-col"
+      style={{
+        width: 340,
+        background: "#ffffff",
+        borderLeft: "1px solid var(--border)",
+        boxShadow: "-4px 0 20px rgba(0,0,0,0.06)",
+        zIndex: 20,
+      }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-4 py-3 shrink-0"
+        style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-secondary)" }}
+      >
+        <div className="flex items-center gap-2">
+          <BarChart2 size={14} style={{ color: "var(--accent)" }} />
+          <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+            Step Results
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1 rounded hover:bg-black/5 transition-colors"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        {/* Status badge */}
+        <div
+          className="flex items-center gap-2.5 p-3 rounded-xl"
+          style={{ background: status === "done" ? "rgba(34,197,94,0.08)" : "var(--bg-secondary)", border: "1px solid var(--border)" }}
+        >
+          {status === "done" ? (
+            <CheckCircle size={16} style={{ color: "#22c55e", flexShrink: 0 }} />
+          ) : (
+            <Loader size={16} className="animate-spin" style={{ color: "var(--accent)", flexShrink: 0 }} />
+          )}
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold" style={{ color: status === "done" ? "#22c55e" : "var(--accent)" }}>
+              {status === "done" ? "Execution Complete" : "Running…"}
+            </span>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Node ID: {nodeId}
+            </span>
+          </div>
+        </div>
+
+        {/* Placeholder results — replace with real artifacts once execution engine is wired */}
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>Output Summary</p>
+          <div
+            className="rounded-xl p-3 flex flex-col gap-2"
+            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Rows processed</span>
+              <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>35,544</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Duration</span>
+              <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                {(1.5 + Math.random() * 2).toFixed(1)}s
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Status</span>
+              <span className="text-xs font-semibold" style={{ color: "#22c55e" }}>Success</span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="rounded-xl p-3 text-xs"
+          style={{ background: "rgba(40,145,218,0.06)", border: "1px solid rgba(40,145,218,0.2)", color: "var(--text-secondary)", lineHeight: 1.6 }}
+        >
+          Full analytical results will be rendered here once connected to the execution engine. Configure the node prompt to control what data is returned.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function WorkflowEditPage() {
   const params     = useParams();
@@ -463,6 +566,13 @@ export default function WorkflowEditPage() {
   const [isDirty,      setIsDirty]      = useState(false);
   const [editingName,  setEditingName]  = useState(false);
   const [nameHovered,  setNameHovered]  = useState(false);
+
+  // Run simulation
+  const [isRunning,      setIsRunning]      = useState(false);
+  const [runNodeStates,  setRunNodeStates]  = useState<Record<string, RunNodeStatus>>({});
+  const [reportNodeId,   setReportNodeId]   = useState<string | null>(null);
+  const canvasRef   = useRef<WorkflowCanvasHandle>(null);
+  const runTimerRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const fmtDate = (iso?: string) =>
     iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : null;
@@ -552,6 +662,48 @@ export default function WorkflowEditPage() {
   }, [canvasVersion, versions.length]);
 
 
+  // ── Run / Abort ───────────────────────────────────────────────────────────
+  const handleRun = useCallback(() => {
+    if (isRunning) {
+      // Abort
+      runTimerRef.current.forEach(clearTimeout);
+      runTimerRef.current = [];
+      setIsRunning(false);
+      setRunNodeStates({});
+      return;
+    }
+
+    const nodeIds = canvasRef.current?.getOrderedNodeIds() ?? [];
+    if (!nodeIds.length) return;
+
+    setIsRunning(true);
+    // Mark all nodes pending immediately
+    const initial: Record<string, RunNodeStatus> = {};
+    nodeIds.forEach((id) => { initial[id] = "pending"; });
+    setRunNodeStates(initial);
+
+    // Sequential execution — each node runs for 1.5–3.5s
+    let elapsed = 0;
+    nodeIds.forEach((id, i) => {
+      const duration = 1500 + Math.random() * 2000;
+
+      const tStart = setTimeout(() => {
+        setRunNodeStates((prev) => ({ ...prev, [id]: "running" }));
+      }, elapsed);
+
+      const tDone = setTimeout(() => {
+        setRunNodeStates((prev) => ({ ...prev, [id]: "done" }));
+        if (i === nodeIds.length - 1) {
+          setIsRunning(false);
+          runTimerRef.current = [];
+        }
+      }, elapsed + duration);
+
+      runTimerRef.current.push(tStart, tDone);
+      elapsed += duration;
+    });
+  }, [isRunning]);
+
   return (
     <div className="flex flex-col h-full" style={{ background: "#ffffff" }}>
 
@@ -632,14 +784,27 @@ export default function WorkflowEditPage() {
             Notes
           </button>
 
-          <Link
-            href={`/workflows/${workflowId ?? "new"}/run`}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
-            style={{ background: "var(--accent)", color: "white" }}
-          >
-            <Play size={13} fill="white" />
-            Run
-          </Link>
+          {isRunning ? (
+            <button
+              onClick={handleRun}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
+              style={{ background: "#DC2626", color: "white" }}
+              title="Abort run"
+            >
+              <Square size={12} fill="white" />
+              Abort
+            </button>
+          ) : (
+            <button
+              onClick={handleRun}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
+              style={{ background: "var(--accent)", color: "white" }}
+              title="Run workflow"
+            >
+              <Play size={13} fill="white" />
+              Run
+            </button>
+          )}
 
           {/* Save — icon only */}
           <button
@@ -705,11 +870,23 @@ export default function WorkflowEditPage() {
       <div className="flex-1 overflow-hidden" style={{ position: "relative" }}>
         {loaded && (
           <WorkflowCanvas
+            ref={canvasRef}
             key={canvasKey}
             initialNodes={isViewingPastVersion ? vNodes : initialNodes}
             initialEdges={isViewingPastVersion ? vEdges : initialEdges}
             startEmpty={!isViewingPastVersion && !initialNodes}
             toolbarOffset={396}
+            runNodeStates={isRunning || Object.keys(runNodeStates).length > 0 ? runNodeStates : undefined}
+            onViewReport={(nodeId) => setReportNodeId(nodeId)}
+          />
+        )}
+
+        {/* Results panel — slides in from right when "View Report" is clicked */}
+        {reportNodeId && (
+          <RunReportPanel
+            nodeId={reportNodeId}
+            runNodeStates={runNodeStates}
+            onClose={() => setReportNodeId(null)}
           />
         )}
         {/* Compact version scrubber — floats below Undo/Redo/Add Step */}
