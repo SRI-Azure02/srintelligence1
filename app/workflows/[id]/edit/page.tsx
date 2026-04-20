@@ -6,7 +6,8 @@ import { useParams } from "next/navigation";
 import {
   Save, Play, Trash2, Pencil, Check,
   StickyNote, ChevronDown, FastForward, Bookmark, Trash,
-  Square, X, BarChart2, CheckCircle, Loader,
+  Square, X, BarChart2, CheckCircle, Loader, TrendingUp,
+  Layers, Search, FileText,
 } from "lucide-react";
 import WorkflowCanvas, { edgeDefaults } from "@/components/workflows/WorkflowCanvas";
 import type { WorkflowCanvasHandle } from "@/components/workflows/WorkflowCanvas";
@@ -440,23 +441,108 @@ function CompactVersionBar({
   );
 }
 
+// ── Mock result data keyed by agent category ──────────────────────────────────
+const ANALYST_RESULT = {
+  headers: ["Plan Name", "Claims", "Fill Rate", "Avg OOP"],
+  rows: [
+    ["BlueCross PPO",   "12,430", "87.2%", "$8.40"],
+    ["Aetna HMO",       "8,921", "82.1%", "$15.20"],
+    ["UHC Choice Plus", "6,102", "79.5%", "$22.10"],
+    ["Cigna OAP",       "4,877", "84.3%", "$11.50"],
+    ["Humana Gold",     "3,214", "76.8%", "$28.70"],
+  ],
+};
+
+const CLUSTER_RESULT = {
+  segments: [
+    {
+      name: "High Performers",
+      plans: ["BlueCross PPO", "Cigna OAP"],
+      characteristics: "High fill rate (>85%), Low OOP (<$12)",
+      confidence: "Silhouette: 0.72",
+      color: "#2891DA",
+    },
+    {
+      name: "At-Risk Payers",
+      plans: ["Aetna HMO", "UHC Choice Plus", "Humana Gold"],
+      characteristics: "Lower fill rate (<83%), High OOP (>$15)",
+      confidence: "Silhouette: 0.72",
+      color: "#a78bfa",
+    },
+  ],
+};
+
+const FORECAST_RESULT = {
+  metrics: [
+    { label: "Model",       value: "Prophet (auto-selected)" },
+    { label: "Horizon",     value: "12 months" },
+    { label: "MAPE",        value: "4.8%" },
+    { label: "MAE",         value: "312 units" },
+    { label: "Train period", value: "Jan 2023 – Dec 2024" },
+  ],
+  rows: [
+    { month: "Jan 2025", forecast: "8,420",  lower: "7,980",  upper: "8,860" },
+    { month: "Feb 2025", forecast: "8,105",  lower: "7,640",  upper: "8,570" },
+    { month: "Mar 2025", forecast: "9,230",  lower: "8,710",  upper: "9,750" },
+    { month: "Apr 2025", forecast: "9,670",  lower: "9,120",  upper: "10,220" },
+    { month: "May 2025", forecast: "10,140", lower: "9,560",  upper: "10,720" },
+    { month: "Jun 2025", forecast: "10,890", lower: "10,280", upper: "11,500" },
+  ],
+};
+
+function getAgentCategory(agentType: string) {
+  const forecasters = new Set(["sri-forecast","prophet","sarima","holt-winters","xgboost","hybrid","auto-forecast"]);
+  const clusterers  = new Set(["sri-clustering","gmm","kmeans","kmedoids","dbscan","hierarchical","auto-cluster"]);
+  if (agentType === "sri-analyst")  return "analyst";
+  if (forecasters.has(agentType))   return "forecast";
+  if (clusterers.has(agentType))    return "clustering";
+  if (agentType === "sri-mtree")    return "mtree";
+  if (agentType === "sri-causal")   return "causal";
+  return "output";
+}
+
 // ── Run Report Panel ─────────────────────────────────────────────────────────
 function RunReportPanel({
   nodeId,
+  agentType,
+  label,
   runNodeStates,
   onClose,
 }: {
-  nodeId: string;
+  nodeId:        string;
+  agentType:     string;
+  label:         string;
   runNodeStates: Record<string, RunNodeStatus>;
-  onClose: () => void;
+  onClose:       () => void;
 }) {
-  const status = runNodeStates[nodeId] ?? "done";
+  const status   = runNodeStates[nodeId] ?? "done";
+  const category = getAgentCategory(agentType);
+
+  const ICON_MAP: Record<string, React.ReactNode> = {
+    analyst:    <Search   size={14} style={{ color: "#2891DA" }} />,
+    forecast:   <TrendingUp size={14} style={{ color: "#34c98b" }} />,
+    clustering: <Layers   size={14} style={{ color: "#a78bfa" }} />,
+    output:     <FileText size={14} style={{ color: "#64748b" }} />,
+    mtree:      <BarChart2 size={14} style={{ color: "#fb923c" }} />,
+    causal:     <BarChart2 size={14} style={{ color: "#8b5cf6" }} />,
+  };
+
+  const COLOR_MAP: Record<string, string> = {
+    analyst:    "#2891DA",
+    forecast:   "#34c98b",
+    clustering: "#a78bfa",
+    output:     "#64748b",
+    mtree:      "#fb923c",
+    causal:     "#8b5cf6",
+  };
+
+  const accentColor = COLOR_MAP[category] ?? "var(--accent)";
 
   return (
     <div
       className="absolute right-0 top-0 bottom-0 flex flex-col"
       style={{
-        width: 340,
+        width: 360,
         background: "#ffffff",
         borderLeft: "1px solid var(--border)",
         boxShadow: "-4px 0 20px rgba(0,0,0,0.06)",
@@ -469,9 +555,9 @@ function RunReportPanel({
         style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-secondary)" }}
       >
         <div className="flex items-center gap-2">
-          <BarChart2 size={14} style={{ color: "var(--accent)" }} />
+          {ICON_MAP[category]}
           <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-            Step Results
+            {label}
           </span>
         </div>
         <button
@@ -485,56 +571,162 @@ function RunReportPanel({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        {/* Status badge */}
+
+        {/* Execution status pill */}
         <div
-          className="flex items-center gap-2.5 p-3 rounded-xl"
-          style={{ background: status === "done" ? "rgba(34,197,94,0.08)" : "var(--bg-secondary)", border: "1px solid var(--border)" }}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg"
+          style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)" }}
         >
-          {status === "done" ? (
-            <CheckCircle size={16} style={{ color: "#22c55e", flexShrink: 0 }} />
-          ) : (
-            <Loader size={16} className="animate-spin" style={{ color: "var(--accent)", flexShrink: 0 }} />
-          )}
-          <div className="flex flex-col">
-            <span className="text-xs font-semibold" style={{ color: status === "done" ? "#22c55e" : "var(--accent)" }}>
-              {status === "done" ? "Execution Complete" : "Running…"}
-            </span>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Node ID: {nodeId}
-            </span>
-          </div>
+          <CheckCircle size={13} style={{ color: "#22c55e", flexShrink: 0 }} />
+          <span className="text-xs font-medium" style={{ color: "#22c55e" }}>
+            Execution complete
+          </span>
+          <span className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
+            {(1.5 + Math.random() * 2).toFixed(1)}s
+          </span>
         </div>
 
-        {/* Placeholder results — replace with real artifacts once execution engine is wired */}
-        <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>Output Summary</p>
-          <div
-            className="rounded-xl p-3 flex flex-col gap-2"
-            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Rows processed</span>
-              <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>35,544</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Duration</span>
-              <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-                {(1.5 + Math.random() * 2).toFixed(1)}s
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Status</span>
-              <span className="text-xs font-semibold" style={{ color: "#22c55e" }}>Success</span>
+        {/* ── Analyst: data table ────────────────────────────────────────── */}
+        {category === "analyst" && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+              Query Results — {ANALYST_RESULT.rows.length} rows
+            </p>
+            <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr style={{ background: "var(--bg-secondary)" }}>
+                    {ANALYST_RESULT.headers.map((h) => (
+                      <th key={h} className="px-3 py-2 text-left font-semibold"
+                        style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ANALYST_RESULT.rows.map((row, ri) => (
+                    <tr key={ri} style={{ borderBottom: ri < ANALYST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="px-3 py-2" style={{ color: "var(--text-primary)" }}>
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
+        )}
 
-        <div
-          className="rounded-xl p-3 text-xs"
-          style={{ background: "rgba(40,145,218,0.06)", border: "1px solid rgba(40,145,218,0.2)", color: "var(--text-secondary)", lineHeight: 1.6 }}
-        >
-          Full analytical results will be rendered here once connected to the execution engine. Configure the node prompt to control what data is returned.
-        </div>
+        {/* ── Clustering: segment cards ──────────────────────────────────── */}
+        {category === "clustering" && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+              {CLUSTER_RESULT.segments.length} Segments Identified
+            </p>
+            {CLUSTER_RESULT.segments.map((seg, i) => (
+              <div key={i} className="rounded-xl p-3 flex flex-col gap-1.5"
+                style={{ background: `${seg.color}08`, border: `1px solid ${seg.color}30` }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold" style={{ color: seg.color }}>
+                    Segment {String.fromCharCode(65 + i)}: {seg.name}
+                  </span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full"
+                    style={{ background: `${seg.color}18`, color: seg.color, fontWeight: 600 }}>
+                    {seg.plans.length} plans
+                  </span>
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  {seg.plans.join(" · ")}
+                </p>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {seg.characteristics}
+                </p>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Confidence — {seg.confidence}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Forecast: metrics + table ──────────────────────────────────── */}
+        {category === "forecast" && (
+          <div className="flex flex-col gap-3">
+            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+              Model Metrics
+            </p>
+            <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              {FORECAST_RESULT.metrics.map((m, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2"
+                  style={{ borderBottom: i < FORECAST_RESULT.metrics.length - 1 ? "1px solid var(--border)" : "none",
+                           background: i % 2 === 0 ? "var(--bg-secondary)" : "#ffffff" }}>
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>{m.label}</span>
+                  <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>{m.value}</span>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+              Forecast — next 6 months
+            </p>
+            <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr style={{ background: "var(--bg-secondary)" }}>
+                    {["Month", "Forecast", "Lower", "Upper"].map((h) => (
+                      <th key={h} className="px-3 py-2 text-left font-semibold"
+                        style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {FORECAST_RESULT.rows.map((r, ri) => (
+                    <tr key={ri} style={{ borderBottom: ri < FORECAST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
+                      <td className="px-3 py-2" style={{ color: "var(--text-muted)" }}>{r.month}</td>
+                      <td className="px-3 py-2 font-semibold" style={{ color: accentColor }}>{r.forecast}</td>
+                      <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{r.lower}</td>
+                      <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{r.upper}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── Output / other: summary card ──────────────────────────────── */}
+        {(category === "output" || category === "mtree" || category === "causal") && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+              Run Summary
+            </p>
+            <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              {[
+                { label: "Nodes executed",    value: "5 / 5" },
+                { label: "Total duration",    value: "12.4s" },
+                { label: "Rows processed",    value: "35,544" },
+                { label: "Segments found",    value: "2" },
+                { label: "Forecast horizon",  value: "12 months" },
+                { label: "Overall status",    value: "Success" },
+              ].map((m, i, arr) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2"
+                  style={{ borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none",
+                           background: i % 2 === 0 ? "var(--bg-secondary)" : "#ffffff" }}>
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>{m.label}</span>
+                  <span className="text-xs font-semibold" style={{ color: m.label === "Overall status" ? "#22c55e" : "var(--text-primary)" }}>
+                    {m.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
@@ -568,9 +760,9 @@ export default function WorkflowEditPage() {
   const [nameHovered,  setNameHovered]  = useState(false);
 
   // Run simulation
-  const [isRunning,      setIsRunning]      = useState(false);
-  const [runNodeStates,  setRunNodeStates]  = useState<Record<string, RunNodeStatus>>({});
-  const [reportNodeId,   setReportNodeId]   = useState<string | null>(null);
+  const [isRunning,     setIsRunning]     = useState(false);
+  const [runNodeStates, setRunNodeStates] = useState<Record<string, RunNodeStatus>>({});
+  const [reportNode,    setReportNode]    = useState<{ nodeId: string; agentType: string; label: string } | null>(null);
   const canvasRef   = useRef<WorkflowCanvasHandle>(null);
   const runTimerRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -787,8 +979,8 @@ export default function WorkflowEditPage() {
           {isRunning ? (
             <button
               onClick={handleRun}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
-              style={{ background: "#DC2626", color: "white" }}
+              className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
+              style={{ background: "#DC2626", color: "white", minWidth: 90 }}
               title="Abort run"
             >
               <Square size={12} fill="white" />
@@ -797,8 +989,8 @@ export default function WorkflowEditPage() {
           ) : (
             <button
               onClick={handleRun}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
-              style={{ background: "var(--accent)", color: "white" }}
+              className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
+              style={{ background: "var(--accent)", color: "white", minWidth: 90 }}
               title="Run workflow"
             >
               <Play size={13} fill="white" />
@@ -877,16 +1069,18 @@ export default function WorkflowEditPage() {
             startEmpty={!isViewingPastVersion && !initialNodes}
             toolbarOffset={396}
             runNodeStates={isRunning || Object.keys(runNodeStates).length > 0 ? runNodeStates : undefined}
-            onViewReport={(nodeId) => setReportNodeId(nodeId)}
+            onViewReport={(nodeId, agentType, label) => setReportNode({ nodeId, agentType, label })}
           />
         )}
 
         {/* Results panel — slides in from right when "View Report" is clicked */}
-        {reportNodeId && (
+        {reportNode && (
           <RunReportPanel
-            nodeId={reportNodeId}
+            nodeId={reportNode.nodeId}
+            agentType={reportNode.agentType}
+            label={reportNode.label}
             runNodeStates={runNodeStates}
-            onClose={() => setReportNodeId(null)}
+            onClose={() => setReportNode(null)}
           />
         )}
         {/* Compact version scrubber — floats below Undo/Redo/Add Step */}

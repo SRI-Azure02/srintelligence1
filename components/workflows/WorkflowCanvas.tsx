@@ -737,7 +737,7 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
   initialEdges?: Edge[];
   toolbarOffset?: number;
   runNodeStates?: Record<string, RunNodeStatus>;
-  onViewReport?: (nodeId: string) => void;
+  onViewReport?: (nodeId: string, agentType: string, label: string) => void;
 }>(function WorkflowCanvas({
   startEmpty = false,
   initialNodes,
@@ -841,7 +841,11 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
     return nodes.map((n) => {
       const runStatus = runNodeStates?.[n.id] ?? "idle";
       const viewReportCb = onViewReportRef.current
-        ? () => onViewReportRef.current?.(n.id)
+        ? () => onViewReportRef.current?.(
+            n.id,
+            (n.data.agentType as string) ?? n.type ?? "output",
+            (n.data.label as string) ?? "Output",
+          )
         : undefined;
       if (n.type === "agentNode") {
         return { ...n, data: { ...n.data, stepNumber: stepMap.get(n.id) ?? (n.data.stepNumber as number), runStatus, onViewReport: viewReportCb } };
