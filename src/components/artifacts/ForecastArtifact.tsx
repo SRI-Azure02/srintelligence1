@@ -422,7 +422,17 @@ export function parseForecastNarrative(text: string): ForecastData {
   const trainedOn = trainMatch?.replace(/[Tt]rained on\s*/i, '').trim()
   const validatedOn = valMatch?.replace(/\*\*/g, '').trim()
 
-  const modelMatch = text.match(/##\s+[^\n]+—\s*([^\n(]+)/)?.[1]?.trim()
+  // Prefer an explicit algorithm name mentioned anywhere in the text.
+  // The heading-based fallback is kept but guarded — if the captured text
+  // doesn't look like a known algorithm it is discarded so that product
+  // names like "Brand1 Claims" never leak into the Model pill.
+  const KNOWN_MODELS = /\b(Prophet|SARIMA|Holt[- ]Winters|XGBoost|Hybrid|Auto[- ](?:Forecast|Select(?:ed)?))\b/i
+  const modelMatch: string | undefined =
+    text.match(KNOWN_MODELS)?.[1]
+    ?? (() => {
+        const headingCapture = text.match(/##\s+[^\n]+—\s*([^\n(]+)/)?.[1]?.trim()
+        return headingCapture && KNOWN_MODELS.test(headingCapture) ? headingCapture : undefined
+      })()
 
   const tables = extractTables(text)
   let validationRows: ForecastRow[] = []
