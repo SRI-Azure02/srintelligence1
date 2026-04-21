@@ -7,11 +7,15 @@ import {
   TrendingUp, Layers, GitFork, GitPullRequestArrow,
   Activity, Cpu, FileText, Search,
   List, SortAsc, ChevronDown, Check,
+  Play, Copy, Share2, Square, Edit2,
 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import WorkflowCardComponent from "@/components/workflows/WorkflowCard";
 import { WorkflowCard } from "@/lib/types";
 import { loadSavedWorkflows, deleteWorkflow } from "@/lib/workflow-storage";
+import { runStore } from "@/lib/run-store";
+import { useActiveRun } from "@/lib/use-run-store";
+import ShareModal from "@/components/workflows/ShareModal";
 
 // ── Agent icon / color maps ───────────────────────────────────────────────────
 const TMPL_ICONS: Record<string, LucideIcon> = {
@@ -130,56 +134,127 @@ function WorkflowListRow({
   onDuplicate?: (id: string) => void;
   onDelete?: (id: string) => void;
 }) {
+  const [showShare,  setShowShare]  = useState(false);
+  const [duplicated, setDuplicated] = useState(false);
+
+  const activeRun = useActiveRun(workflow.id);
+  const isRunning = !!activeRun;
+
+  const handleRun = () => {
+    const nodes = workflow.agentChain.map((step) => ({
+      id:        step.id,
+      agentType: step.type,
+      label:     step.label,
+      prompt:    step.prompt,
+    }));
+    runStore.startRun(workflow.id, workflow.name, nodes);
+  };
+
+  const handleDuplicate = () => {
+    onDuplicate?.(workflow.id);
+    setDuplicated(true);
+    setTimeout(() => setDuplicated(false), 1500);
+  };
+
   return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors hover:bg-black/3"
-      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-      {/* Chain icons */}
-      <div className="flex items-center gap-1 shrink-0">
-        {workflow.agentChain.slice(0, 4).map((step, i) => {
-          const Icon = TMPL_ICONS[step.type] ?? TrendingUp;
-          return (
-            <span key={step.id} className="flex items-center justify-center w-6 h-6 rounded"
-              style={{ background: "var(--bg-tertiary)" }} title={step.label}>
-              <Icon size={12} style={{ color: "#111111" }} strokeWidth={1.6} />
-            </span>
-          );
-        })}
-        {workflow.agentChain.length > 4 && (
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>+{workflow.agentChain.length - 4}</span>
-        )}
-      </div>
+    <>
+      <div className="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors hover:bg-black/3"
+        style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
 
-      {/* Name + description */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
-          {workflow.name}
+        {/* Chain icons */}
+        <div className="flex items-center gap-1 shrink-0">
+          {workflow.agentChain.slice(0, 4).map((step) => {
+            const Icon = TMPL_ICONS[step.type] ?? TrendingUp;
+            return (
+              <span key={step.id} className="flex items-center justify-center w-6 h-6 rounded"
+                style={{ background: "var(--bg-tertiary)" }} title={step.label}>
+                <Icon size={12} style={{ color: "#111111" }} strokeWidth={1.6} />
+              </span>
+            );
+          })}
+          {workflow.agentChain.length > 4 && (
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>+{workflow.agentChain.length - 4}</span>
+          )}
+        </div>
+
+        {/* Name + description */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}
+            title={workflow.name}>
+            {workflow.name}
+          </p>
+          {workflow.description && (
+            <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{workflow.description}</p>
+          )}
+        </div>
+
+        {/* Meta */}
+        <p className="text-xs shrink-0 hidden lg:block" style={{ color: "var(--text-muted)", minWidth: 100 }}>
+          {workflow.lastRun} · #{workflow.runCount}
         </p>
-        {workflow.description && (
-          <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{workflow.description}</p>
-        )}
-      </div>
 
-      {/* Meta */}
-      <p className="text-xs shrink-0 hidden lg:block" style={{ color: "var(--text-muted)", minWidth: 100 }}>
-        {workflow.lastRun} · #{workflow.runCount}
-      </p>
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Run / Abort */}
+          {isRunning ? (
+            <button
+              onClick={() => runStore.abortRun(workflow.id)}
+              className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
+              style={{ color: "#DC2626" }} title="Abort run">
+              <Square size={14} />
+            </button>
+          ) : (
+            <button
+              onClick={handleRun}
+              className="p-1.5 rounded-lg transition-colors hover:bg-blue-50"
+              style={{ color: "#2891DA" }} title="Run workflow">
+              <Play size={14} />
+            </button>
+          )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 shrink-0">
-        <Link href={`/workflows/${workflow.id}/edit`}
-          className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-black/5"
-          style={{ color: "var(--accent)", border: "1px solid rgba(40,145,218,0.3)" }}>
-          Open
-        </Link>
-        {onDelete && (
-          <button onClick={() => onDelete(workflow.id)}
-            className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
-            style={{ color: "var(--text-muted)" }} title="Delete">
-            <X size={13} />
+          {/* Duplicate */}
+          <button
+            onClick={handleDuplicate}
+            className="p-1.5 rounded-lg transition-colors hover:bg-black/5"
+            style={{ color: duplicated ? "var(--accent)" : "var(--text-muted)" }}
+            title={duplicated ? "Duplicated!" : "Duplicate"}>
+            {duplicated ? <Check size={14} /> : <Copy size={14} />}
           </button>
-        )}
+
+          {/* Share */}
+          <button
+            onClick={() => setShowShare(true)}
+            className="p-1.5 rounded-lg transition-colors hover:bg-black/5"
+            style={{ color: "var(--text-muted)" }} title="Share">
+            <Share2 size={14} />
+          </button>
+
+          {/* Open */}
+          <Link href={`/workflows/${workflow.id}/edit`}
+            className="p-1.5 rounded-lg transition-colors hover:bg-black/5"
+            style={{ color: "var(--accent)" }} title="Open in canvas">
+            <Edit2 size={14} />
+          </Link>
+
+          {/* Delete */}
+          {onDelete && (
+            <button onClick={() => onDelete(workflow.id)}
+              className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
+              style={{ color: "var(--text-muted)" }} title="Delete">
+              <X size={13} />
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+
+      {showShare && (
+        <ShareModal
+          workflowId={workflow.id}
+          workflowName={workflow.name}
+          onClose={() => setShowShare(false)}
+        />
+      )}
+    </>
   );
 }
 
