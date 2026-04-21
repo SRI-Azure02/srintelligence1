@@ -352,6 +352,16 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
     ? workflow.runCount + 1
     : workflow.runCount;
 
+  const handleRun = () => {
+    const nodes = workflow.agentChain.map((step) => ({
+      id:        step.id,
+      agentType: step.type,
+      label:     step.label,
+      prompt:    step.prompt,
+    }));
+    runStore.startRun(workflow.id, workflow.name, nodes);
+  };
+
   const handleDuplicate = () => {
     onDuplicate?.(workflow.id);
     setDuplicated(true);
@@ -436,14 +446,14 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
                 Abort
               </button>
             ) : (
-              <Link
-                href={`/workflows/${workflow.id}/edit`}
+              <button
+                onClick={handleRun}
                 className="flex flex-col items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
                 style={{ background: "#2891DA", color: "white", width: 90, minHeight: 72 }}
               >
                 <Play size={15} fill="white" />
-                Run Now
-              </Link>
+                Run
+              </button>
             )}
 
             <div className="flex flex-col gap-2">

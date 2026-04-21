@@ -4,17 +4,17 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import {
   Bell, User, LogOut, ChevronDown, X, CheckCircle,
-  AlertCircle, Ban, Loader, Search, Layers, TrendingUp,
-  FileText, BarChart2, ExternalLink, Trash2,
+  AlertCircle, Ban, Search, Layers, TrendingUp,
+  FileText, BarChart2, ExternalLink, Trash2, CheckCheck,
 } from "lucide-react";
 import { useNotifications, useUnreadCount } from "@/lib/use-run-store";
 import { runStore } from "@/lib/run-store";
-import type { RunNotification, RunNodeMeta, NodeRunStatus } from "@/lib/run-store";
+import type { RunNotification, RunNodeMeta, StoredArtifact } from "@/lib/run-store";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function timeAgo(ms: number): string {
   const s = Math.floor((Date.now() - ms) / 1000);
-  if (s < 60)  return `${s}s ago`;
+  if (s < 60)   return `${s}s ago`;
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   return `${Math.floor(s / 3600)}h ago`;
 }
@@ -42,110 +42,70 @@ function agentColor(agentType: string) {
 
 function AgentIcon({ agentType, size = 12 }: { agentType: string; size?: number }) {
   const props = { size, style: { color: agentColor(agentType), flexShrink: 0 as const } };
-  if (agentType === "sri-analyst")                                        return <Search     {...props} />;
-  if (["sri-clustering","gmm","kmeans","kmedoids","dbscan","hierarchical","auto-cluster"].includes(agentType)) return <Layers     {...props} />;
-  if (agentType === "output")                                             return <FileText   {...props} />;
-  if (agentType.startsWith("sri-m"))                                      return <BarChart2  {...props} />;
+  if (agentType === "sri-analyst")                                                                    return <Search    {...props} />;
+  if (["sri-clustering","gmm","kmeans","kmedoids","dbscan","hierarchical","auto-cluster"].includes(agentType)) return <Layers    {...props} />;
+  if (agentType === "output")                                                                         return <FileText  {...props} />;
+  if (agentType.startsWith("sri-m"))                                                                  return <BarChart2 {...props} />;
   return <TrendingUp {...props} />;
 }
 
-// ── Inline result renderer (mirrors RunReportPanel in edit page) ──────────────
-const ANALYST_RESULT = {
-  headers: ["Plan Name", "Claims", "Fill Rate", "Avg OOP"],
-  rows: [
-    ["BlueCross PPO","12,430","87.2%","$8.40"],
-    ["Aetna HMO","8,921","82.1%","$15.20"],
-    ["UHC Choice Plus","6,102","79.5%","$22.10"],
-    ["Cigna OAP","4,877","84.3%","$11.50"],
-    ["Humana Gold","3,214","76.8%","$28.70"],
-  ],
-};
-const CLUSTER_SEGMENTS = [
-  { name:"High Performers", plans:["BlueCross PPO","Cigna OAP"], chars:"High fill rate, Low OOP", color:"#2891DA" },
-  { name:"At-Risk Payers",  plans:["Aetna HMO","UHC Choice Plus","Humana Gold"], chars:"Lower fill rate, High OOP", color:"#a78bfa" },
-];
-const FORECAST_METRICS = [
-  { label:"Model",       value:"Prophet (auto-selected)" },
-  { label:"Horizon",     value:"12 months" },
-  { label:"MAPE",        value:"4.8%" },
-  { label:"MAE",         value:"312 units" },
-];
-
-function getCategory(agentType: string) {
-  if (agentType === "sri-analyst") return "analyst";
-  if (["sri-clustering","gmm","kmeans","kmedoids","dbscan","hierarchical","auto-cluster"].includes(agentType)) return "clustering";
-  if (agentType === "output") return "output";
-  return "forecast";
-}
-
-function NodeResult({ node, nodeStates }: { node: RunNodeMeta; nodeStates: Record<string, NodeRunStatus> }) {
-  const cat = getCategory(node.agentType);
+// ── Inline result summary (uses real nodeArtifacts) ───────────────────────────
+function NodeResultSummary({ node, artifact }: { node: RunNodeMeta; artifact?: StoredArtifact }) {
   const color = agentColor(node.agentType);
+  const data = artifact?.data as Record<string, unknown> | null | undefined;
+
+  // Try to extract a meaningful summary from the artifact
+  const rowCount = (() => {
+    if (!data) return null;
+    const results = data.results as { rows?: unknown[] } | undefined;
+    if (Array.isArray(results?.rows)) return results!.rows.length;
+    if (Array.isArray(data.rows)) return (data.rows as unknown[]).length;
+    if (typeof data.count === "number") return data.count;
+    return null;
+  })();
+
+  const clusterCount = (() => {
+    if (!data) return null;
+    const segs = data.segments ?? data.clusters;
+    if (Array.isArray(segs)) return segs.length;
+    return null;
+  })();
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5">
         <AgentIcon agentType={node.agentType} />
-        <span className="text-xs font-semibold" style={{ color }}>
-          {node.label}
-        </span>
+        <span className="text-xs font-semibold" style={{ color }}>{node.label}</span>
       </div>
 
-      {cat === "analyst" && (
-        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr style={{ background: "var(--bg-secondary)" }}>
-                {ANALYST_RESULT.headers.map((h) => (
-                  <th key={h} className="px-2 py-1.5 text-left font-semibold"
-                    style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ANALYST_RESULT.rows.map((row, ri) => (
-                <tr key={ri} style={{ borderBottom: ri < ANALYST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
-                  {row.map((cell, ci) => (
-                    <td key={ci} className="px-2 py-1.5" style={{ color: "var(--text-primary)", fontSize: 11 }}>{cell}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {artifact ? (
+        <div className="rounded-lg px-2.5 py-2 text-xs flex flex-col gap-0.5"
+          style={{ background: `${color}08`, border: `1px solid ${color}20` }}>
+          <div className="flex items-center gap-1">
+            <span className="flex items-center justify-center rounded-full"
+              style={{ width: 14, height: 14, background: "#22c55e" }}>
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                <path d="M1.5 4L3 5.5L6.5 2.5" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </span>
+            <span style={{ color: "#22c55e", fontWeight: 600 }}>Success</span>
+          </div>
+          {rowCount !== null && (
+            <span style={{ color: "var(--text-secondary)" }}>{rowCount} rows returned</span>
+          )}
+          {clusterCount !== null && (
+            <span style={{ color: "var(--text-secondary)" }}>{clusterCount} segments identified</span>
+          )}
+          {artifact.narrative && (
+            <span className="line-clamp-2 mt-0.5" style={{ color: "var(--text-muted)", lineHeight: 1.4 }}>
+              {artifact.narrative}
+            </span>
+          )}
         </div>
-      )}
-
-      {cat === "clustering" && (
-        <div className="flex flex-col gap-1.5">
-          {CLUSTER_SEGMENTS.map((seg, i) => (
-            <div key={i} className="rounded-lg p-2.5" style={{ background: `${seg.color}08`, border: `1px solid ${seg.color}30` }}>
-              <p className="text-xs font-semibold" style={{ color: seg.color }}>{seg.name}</p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{seg.plans.join(" · ")}</p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{seg.chars}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {cat === "forecast" && (
-        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-          {FORECAST_METRICS.map((m, i) => (
-            <div key={i} className="flex items-center justify-between px-2.5 py-1.5"
-              style={{ borderBottom: i < FORECAST_METRICS.length - 1 ? "1px solid var(--border)" : "none",
-                       background: i % 2 === 0 ? "var(--bg-secondary)" : "#fff" }}>
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>{m.label}</span>
-              <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>{m.value}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {cat === "output" && (
-        <div className="rounded-lg p-2.5" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-          <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Combined report generated across all segments.</p>
-        </div>
+      ) : (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          No result captured for this step.
+        </p>
       )}
     </div>
   );
@@ -156,26 +116,25 @@ function NotificationCard({ notif, onDismiss }: { notif: RunNotification; onDism
   const [expanded, setExpanded] = useState(false);
 
   const STATUS_ICON = {
-    done:    <CheckCircle  size={14} style={{ color: "#22c55e",  flexShrink: 0 }} />,
-    failed:  <AlertCircle  size={14} style={{ color: "#ef4444",  flexShrink: 0 }} />,
-    aborted: <Ban          size={14} style={{ color: "#f59e0b",  flexShrink: 0 }} />,
+    done:    <CheckCircle size={14} style={{ color: "#22c55e",  flexShrink: 0 }} />,
+    failed:  <AlertCircle size={14} style={{ color: "#ef4444",  flexShrink: 0 }} />,
+    aborted: <Ban         size={14} style={{ color: "#f59e0b",  flexShrink: 0 }} />,
   };
-
-  const STATUS_LABEL = { done: "Completed", failed: "Failed", aborted: "Aborted" };
+  const STATUS_LABEL = { done: "Completed", failed: "Failed",  aborted: "Aborted" };
   const STATUS_COLOR = { done: "#22c55e",   failed: "#ef4444", aborted: "#f59e0b" };
+
+  // Only show agent nodes (skip output) in expanded view
+  const resultNodes = notif.nodes.filter((n) => n.agentType !== "output");
 
   return (
     <div
       className="rounded-xl overflow-hidden"
       style={{ border: "1px solid var(--border)", background: notif.read ? "#fff" : "rgba(40,145,218,0.04)" }}
     >
-      {/* Card header row */}
+      {/* Header row */}
       <div
         className="flex items-start gap-2 px-3 py-2.5 cursor-pointer"
-        onClick={() => {
-          runStore.markRead(notif.id);
-          setExpanded((v) => !v);
-        }}
+        onClick={() => { runStore.markRead(notif.id); setExpanded((v) => !v); }}
       >
         <div className="mt-0.5">{STATUS_ICON[notif.status]}</div>
         <div className="flex-1 min-w-0">
@@ -188,7 +147,7 @@ function NotificationCard({ notif, onDismiss }: { notif: RunNotification; onDism
                 style={{ width: 6, height: 6, background: "#2891DA", display: "inline-block" }} />
             )}
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <span className="text-xs font-medium" style={{ color: STATUS_COLOR[notif.status] }}>
               {STATUS_LABEL[notif.status]}
             </span>
@@ -223,23 +182,22 @@ function NotificationCard({ notif, onDismiss }: { notif: RunNotification; onDism
         </div>
       </div>
 
-      {/* Expanded results */}
-      {expanded && notif.status === "done" && (
-        <div
-          className="flex flex-col gap-4 px-3 pb-3"
-          style={{ borderTop: "1px solid var(--border)" }}
-        >
-          <div className="pt-3 flex flex-col gap-4">
-            {notif.nodes.map((node) => (
-              <NodeResult key={node.id} node={node} nodeStates={notif.nodeStates} />
-            ))}
-          </div>
+      {/* Expanded: real node results */}
+      {expanded && notif.status === "done" && resultNodes.length > 0 && (
+        <div className="flex flex-col gap-3 px-3 pb-3 pt-2.5" style={{ borderTop: "1px solid var(--border)" }}>
+          {resultNodes.map((node) => (
+            <NodeResultSummary
+              key={node.id}
+              node={node}
+              artifact={notif.nodeArtifacts?.[node.id]}
+            />
+          ))}
         </div>
       )}
 
       {expanded && notif.status !== "done" && (
-        <div className="px-3 pb-3" style={{ borderTop: "1px solid var(--border)" }}>
-          <p className="text-xs mt-3" style={{ color: "var(--text-muted)" }}>
+        <div className="px-3 pb-3 pt-2.5" style={{ borderTop: "1px solid var(--border)" }}>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
             {notif.status === "aborted"
               ? "Run was aborted before completion — no results available."
               : "Run ended with an error — no results available."}
@@ -251,11 +209,14 @@ function NotificationCard({ notif, onDismiss }: { notif: RunNotification; onDism
 }
 
 // ── Notifications pane ────────────────────────────────────────────────────────
+type FilterTab = "all" | "done" | "aborted";
+
 function NotificationsPane({ onClose }: { onClose: () => void }) {
   const notifications = useNotifications();
+  const [filter, setFilter] = useState<FilterTab>("all");
   const ref = useRef<HTMLDivElement>(null);
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
-  // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
@@ -263,6 +224,18 @@ function NotificationsPane({ onClose }: { onClose: () => void }) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
+
+  const filtered = notifications.filter((n) => {
+    if (filter === "done")    return n.status === "done";
+    if (filter === "aborted") return n.status === "aborted" || n.status === "failed";
+    return true;
+  });
+
+  const tabs: { key: FilterTab; label: string }[] = [
+    { key: "all",     label: "All" },
+    { key: "done",    label: "Completed" },
+    { key: "aborted", label: "Aborted" },
+  ];
 
   return (
     <div
@@ -278,7 +251,7 @@ function NotificationsPane({ onClose }: { onClose: () => void }) {
         zIndex: 100,
       }}
     >
-      {/* Pane header */}
+      {/* Header */}
       <div
         className="flex items-center justify-between px-4 py-3 shrink-0"
         style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-secondary)" }}
@@ -289,15 +262,24 @@ function NotificationsPane({ onClose }: { onClose: () => void }) {
             Notifications
           </span>
           {notifications.length > 0 && (
-            <span
-              className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
-              style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}
-            >
+            <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
+              style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>
               {notifications.length}
             </span>
           )}
         </div>
         <div className="flex items-center gap-1">
+          {unreadCount > 0 && (
+            <button
+              onClick={() => runStore.markAllRead()}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors hover:bg-black/5"
+              style={{ color: "var(--text-muted)" }}
+              title="Mark all as read"
+            >
+              <CheckCheck size={11} />
+              Mark read
+            </button>
+          )}
           {notifications.length > 0 && (
             <button
               onClick={() => runStore.dismissAll()}
@@ -308,33 +290,58 @@ function NotificationsPane({ onClose }: { onClose: () => void }) {
               Clear all
             </button>
           )}
-          <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-black/5 transition-colors"
-            style={{ color: "var(--text-muted)" }}
-          >
+          <button onClick={onClose} className="p-1 rounded hover:bg-black/5 transition-colors"
+            style={{ color: "var(--text-muted)" }}>
             <X size={13} />
           </button>
         </div>
       </div>
 
+      {/* Filter tabs */}
+      {notifications.length > 0 && (
+        <div className="flex gap-1 px-3 py-2 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+          {tabs.map((t) => {
+            const count = notifications.filter((n) => {
+              if (t.key === "done")    return n.status === "done";
+              if (t.key === "aborted") return n.status === "aborted" || n.status === "failed";
+              return true;
+            }).length;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setFilter(t.key)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors"
+                style={
+                  filter === t.key
+                    ? { background: "#2891DA", color: "#fff" }
+                    : { background: "transparent", color: "var(--text-muted)" }
+                }
+              >
+                {t.label}
+                <span className="text-xs opacity-70">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-        {notifications.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 gap-2">
             <Bell size={28} style={{ color: "var(--border)" }} />
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>No notifications</p>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              {notifications.length === 0 ? "No notifications" : "No notifications in this filter"}
+            </p>
             <p className="text-xs text-center" style={{ color: "var(--text-muted)", maxWidth: 240 }}>
-              Workflow run results will appear here when runs complete.
+              {notifications.length === 0
+                ? "Workflow run results will appear here when runs complete."
+                : "Try switching to \"All\" to see all notifications."}
             </p>
           </div>
         ) : (
-          notifications.map((n) => (
-            <NotificationCard
-              key={n.id}
-              notif={n}
-              onDismiss={() => runStore.dismiss(n.id)}
-            />
+          filtered.map((n) => (
+            <NotificationCard key={n.id} notif={n} onDismiss={() => runStore.dismiss(n.id)} />
           ))
         )}
       </div>
@@ -370,11 +377,7 @@ function UserMenu() {
       {open && (
         <div
           className="absolute right-0 top-full mt-1 w-48 rounded-xl overflow-hidden z-50"
-          style={{
-            background: "#ffffff",
-            border: "1px solid var(--border)",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.10)",
-          }}
+          style={{ background: "#ffffff", border: "1px solid var(--border)", boxShadow: "0 4px 20px rgba(0,0,0,0.10)" }}
         >
           <div className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
             <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>Anonymous</p>
@@ -399,9 +402,6 @@ export default function TopBar() {
   const [notifOpen, setNotifOpen] = useState(false);
   const unread = useUnreadCount();
 
-  // Also show any in-progress runs as a pulse on the bell
-  // (for this we just check the global store inline)
-
   return (
     <header
       className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0"
@@ -409,34 +409,22 @@ export default function TopBar() {
     >
       {/* Logo */}
       <Link href="/chat" className="flex flex-col gap-0" style={{ textDecoration: "none" }}>
-        <div
-          className="flex items-baseline gap-0 font-bold tracking-tight"
-          style={{ fontSize: "28px", lineHeight: 1.15 }}
-        >
+        <div className="flex items-baseline gap-0 font-bold tracking-tight" style={{ fontSize: "28px", lineHeight: 1.15 }}>
           <span className="brand-gradient">SRIntelligence</span>
-          <sup
-            className="brand-gradient"
-            style={{ fontSize: "0.5em", fontWeight: 500, verticalAlign: "0.6em", lineHeight: 1, marginLeft: "1px" }}
-          >™</sup>
+          <sup className="brand-gradient"
+            style={{ fontSize: "0.5em", fontWeight: 500, verticalAlign: "0.6em", lineHeight: 1, marginLeft: "1px" }}>™</sup>
         </div>
-        <span
-          style={{
-            fontSize: "11px", fontWeight: 600, letterSpacing: "0.10em",
-            color: "#0f172a", lineHeight: 1, marginTop: "7px",
-          }}
-        >
+        <span style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.10em", color: "#0f172a", lineHeight: 1, marginTop: "7px" }}>
           STRATEGIC RESEARCH INSIGHTS, INC.
         </span>
       </Link>
 
       {/* Right controls */}
       <div className="flex items-center gap-2">
-        {/* Bell + notifications */}
         <div className="relative">
           <button
             onClick={() => {
               setNotifOpen((v) => !v);
-              // Mark all read when pane opens
               if (!notifOpen) runStore.markAllRead();
             }}
             className="p-1.5 rounded-lg transition-colors hover:bg-black/7"
@@ -444,28 +432,21 @@ export default function TopBar() {
             title="Notifications"
           >
             <Bell size={16} />
-            {/* Unread badge */}
             {unread > 0 && (
               <span
                 className="absolute flex items-center justify-center rounded-full text-white font-bold"
                 style={{
                   top: 2, right: 2,
-                  width: unread > 9 ? 16 : 14,
-                  height: 14,
-                  background: "#ef4444",
-                  fontSize: 9,
-                  lineHeight: 1,
-                  pointerEvents: "none",
+                  width: unread > 9 ? 16 : 14, height: 14,
+                  background: "#ef4444", fontSize: 9, lineHeight: 1, pointerEvents: "none",
                 }}
               >
                 {unread > 9 ? "9+" : unread}
               </span>
             )}
           </button>
-
           {notifOpen && <NotificationsPane onClose={() => setNotifOpen(false)} />}
         </div>
-
         <UserMenu />
       </div>
     </header>

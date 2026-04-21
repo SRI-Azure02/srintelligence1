@@ -1172,6 +1172,7 @@ export default function WorkflowEditPage() {
             startEmpty={!isViewingPastVersion && !initialNodes}
             toolbarOffset={396}
             runNodeStates={Object.keys(runNodeStates).length > 0 ? runNodeStates : undefined}
+            nodeArtifacts={Object.keys(nodeArtifacts).length > 0 ? nodeArtifacts : undefined}
             onViewReport={(nodeId, agentType, label) => setReportNode({ nodeId, agentType, label })}
           />
         )}

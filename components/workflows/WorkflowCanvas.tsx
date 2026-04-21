@@ -22,7 +22,8 @@ import "@xyflow/react/dist/style.css";
 import AgentNode from "./nodes/AgentNode";
 import OutputNode from "./nodes/OutputNode";
 import type { RunNodeStatus } from "./nodes/AgentNode";
-import { X, Undo2, Redo2, Plus, TrendingUp, Layers, GitFork, GitPullRequestArrow, ChevronDown, Search, FileText, LayoutGrid } from "lucide-react";
+import { X, Undo2, Redo2, Plus, TrendingUp, Layers, GitFork, GitPullRequestArrow, ChevronDown, Search, FileText, LayoutGrid, Activity } from "lucide-react";
+import type { StoredArtifact } from "@/lib/run-store";
 import { agentPalette } from "@/lib/mock-data";
 
 const nodeTypes = { agentNode: AgentNode, outputNode: OutputNode };
@@ -195,13 +196,13 @@ interface NodeDetailDrawerProps {
   onClose: () => void;
   onUpdateNode: (id: string, data: Record<string, unknown>) => void;
   semanticViews: SemanticView[];
-  /** Called whenever the drawer's dirty state changes so the canvas can intercept close/switch */
   onDirtyChange: (dirty: boolean) => void;
-  /** Ref the canvas fills to trigger a save from outside (e.g. before closing) */
   saveRef: React.MutableRefObject<(() => void) | null>;
+  /** Artifact from the most recent run for this node */
+  lastRunArtifact?: StoredArtifact;
 }
 
-function NodeDetailDrawer({ node, onClose, onUpdateNode, semanticViews, onDirtyChange, saveRef }: NodeDetailDrawerProps) {
+function NodeDetailDrawer({ node, onClose, onUpdateNode, semanticViews, onDirtyChange, saveRef, lastRunArtifact }: NodeDetailDrawerProps) {
   const d        = node.data as Record<string, unknown>;
   const rawType  = (d.agentType as string) ?? "sri-analyst";
   const category = getNodeCategory(rawType);
@@ -209,6 +210,9 @@ function NodeDetailDrawer({ node, onClose, onUpdateNode, semanticViews, onDirtyC
   // Prompt
   const [prompt, setPrompt] = useState((d.prompt as string) ?? "");
   const promptRef = useRef<HTMLTextAreaElement>(null);
+
+  // run-per-segment
+  const [runPerSegment, setRunPerSegment] = useState<boolean>((d.runPerSegment as boolean) ?? false);
 
   // Snapshot of values at open-time — used to detect changes
   const initial = useRef({
@@ -221,6 +225,7 @@ function NodeDetailDrawer({ node, onClose, onUpdateNode, semanticViews, onDirtyC
     historyToUse:       (d.historyToUse       as string)  ?? "All available",
     outputFormat:       (d.outputFormat       as string)  ?? "Full Table",
     semanticModelId:    (d.semanticModel      as string)  ?? "",
+    runPerSegment:      (d.runPerSegment      as boolean) ?? false,
   });
 
   // Auto-focus the prompt field when the drawer opens and prompt is missing
@@ -263,7 +268,8 @@ function NodeDetailDrawer({ node, onClose, onUpdateNode, semanticViews, onDirtyC
     forecastGranularity!== initial.current.forecastGranularity||
     historyToUse       !== initial.current.historyToUse       ||
     outputFormat       !== initial.current.outputFormat       ||
-    semanticModelId    !== initial.current.semanticModelId;
+    semanticModelId    !== initial.current.semanticModelId    ||
+    runPerSegment      !== initial.current.runPerSegment;
 
   const handleApply = () => {
     if (!isDirty) return;
@@ -273,11 +279,11 @@ function NodeDetailDrawer({ node, onClose, onUpdateNode, semanticViews, onDirtyC
       agentType: algorithm,
       outputFormat,
       semanticModel: semanticModelId,
+      runPerSegment,
       ...(category === "clustering" && clusterNeedsK ? { autoK, numClusters: autoK ? null : numClusters } : {}),
       ...(category === "forecast" ? { forecastPeriods, forecastGranularity, historyToUse } : {}),
     });
-    // Update snapshot so the button disables again after saving
-    initial.current = { prompt, algorithm, autoK, numClusters, forecastPeriods, forecastGranularity, historyToUse, outputFormat, semanticModelId };
+    initial.current = { prompt, algorithm, autoK, numClusters, forecastPeriods, forecastGranularity, historyToUse, outputFormat, semanticModelId, runPerSegment };
   };
 
   // Keep parent informed of dirty state and expose handleApply
@@ -477,10 +483,57 @@ function NodeDetailDrawer({ node, onClose, onUpdateNode, semanticViews, onDirtyC
           </p>
         </div>
 
-        <div className="rounded-lg p-3 text-xs flex flex-col gap-1" style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)" }}>
+        {/* Run per segment toggle */}
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Run per segment</label>
+            <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)", opacity: 0.7 }}>
+              Execute independently for each cluster
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRunPerSegment((v) => !v)}
+            className="relative inline-flex items-center rounded-full shrink-0 transition-colors"
+            style={{ width: 32, height: 18, background: runPerSegment ? "#a78bfa" : "var(--border)" }}
+          >
+            <span
+              className="absolute rounded-full bg-white shadow transition-transform"
+              style={{ width: 13, height: 13, left: 2, transform: runPerSegment ? "translateX(14px)" : "translateX(0)" }}
+            />
+          </button>
+        </div>
+
+        {/* Last Run Result — real data from most recent run */}
+        <div className="rounded-lg p-3 text-xs flex flex-col gap-1.5" style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)" }}>
           <p className="font-medium" style={{ color: "var(--text-muted)" }}>Last Run Result</p>
-          <p style={{ color: "var(--success)" }}>Success (1.4s)</p>
-          <p style={{ color: "var(--text-secondary)" }}>Rows returned: 12</p>
+          {lastRunArtifact ? (() => {
+            const data = lastRunArtifact.data as Record<string, unknown> | null | undefined;
+            const results = data?.results as { rows?: unknown[]; headers?: string[] } | undefined;
+            const rowCount = Array.isArray(results?.rows)
+              ? results!.rows.length
+              : Array.isArray((data as Record<string, unknown> | undefined)?.rows)
+              ? ((data as Record<string, unknown>).rows as unknown[]).length
+              : null;
+            const segCount = (() => {
+              const segs = (data as Record<string, unknown> | undefined)?.segments ?? (data as Record<string, unknown> | undefined)?.clusters;
+              return Array.isArray(segs) ? segs.length : null;
+            })();
+            return (
+              <>
+                <p style={{ color: "var(--success)", fontWeight: 600 }}>✓ Success</p>
+                {rowCount !== null && <p style={{ color: "var(--text-secondary)" }}>Rows returned: {rowCount}</p>}
+                {segCount !== null && <p style={{ color: "var(--text-secondary)" }}>Segments: {segCount}</p>}
+                {lastRunArtifact.narrative && (
+                  <p className="line-clamp-2 mt-0.5" style={{ color: "var(--text-muted)", lineHeight: 1.4 }}>
+                    {lastRunArtifact.narrative}
+                  </p>
+                )}
+              </>
+            );
+          })() : (
+            <p style={{ color: "var(--text-muted)", fontStyle: "italic" }}>No run data yet — run the workflow to see results.</p>
+          )}
         </div>
       </div>
 
@@ -740,6 +793,7 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
   initialEdges?: Edge[];
   toolbarOffset?: number;
   runNodeStates?: Record<string, RunNodeStatus>;
+  nodeArtifacts?: Record<string, StoredArtifact>;
   onViewReport?: (nodeId: string, agentType: string, label: string) => void;
 }>(function WorkflowCanvas({
   startEmpty = false,
@@ -747,6 +801,7 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
   initialEdges,
   toolbarOffset = 12,
   runNodeStates,
+  nodeArtifacts,
   onViewReport,
 }, ref) {
   const [nodes, setNodes, onNodesChange] = useNodesState(
@@ -1032,6 +1087,46 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
             </ControlButton>
           </Controls>
           <FitViewHelper signal={fitViewSignal} />
+
+          {/* Empty canvas state — shown when no agent nodes exist yet */}
+          {nodes.filter((n) => n.type === "agentNode").length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 5 }}>
+              <div className="flex flex-col items-center gap-4 pointer-events-auto"
+                style={{ maxWidth: 400, textAlign: "center" }}>
+                <div className="flex items-center justify-center rounded-2xl"
+                  style={{ width: 52, height: 52, background: "rgba(40,145,218,0.10)", border: "1.5px dashed rgba(40,145,218,0.3)" }}>
+                  <Plus size={22} style={{ color: "#2891DA" }} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+                    Start by adding your first step
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    Click <strong>+ Add Step</strong> above to choose an agent, or pick one below to get started quickly.
+                  </p>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {[
+                    { type: "sri-analyst",    label: "Analyst",    Icon: Search,     color: "#2891DA" },
+                    { type: "sri-forecast",   label: "Forecast",   Icon: TrendingUp, color: "#34c98b" },
+                    { type: "sri-clustering", label: "Clustering", Icon: Layers,     color: "#a78bfa" },
+                    { type: "sri-mtree",      label: "MTree",      Icon: GitFork,    color: "#fb923c" },
+                    { type: "sri-causal",     label: "Causal",     Icon: Activity,   color: "#8b5cf6" },
+                  ].map(({ type, label, Icon, color }) => (
+                    <button
+                      key={type}
+                      onClick={() => addNode(type, label)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+                      style={{ background: `${color}12`, border: `1px solid ${color}30`, color }}
+                    >
+                      <Icon size={13} strokeWidth={1.6} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </ReactFlow>
 
         {/* Toolbar: Undo / Redo + Add Step */}
@@ -1136,6 +1231,7 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
           semanticViews={semanticViews}
           onDirtyChange={(dirty) => { drawerIsDirtyRef.current = dirty; }}
           saveRef={drawerSaveRef}
+          lastRunArtifact={nodeArtifacts?.[selectedNode.id]}
         />
       )}
 

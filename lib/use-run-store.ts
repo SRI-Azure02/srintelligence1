@@ -32,6 +32,15 @@ export function useUnreadCount(): number {
   );
 }
 
+/** Returns all currently active (in-progress) runs. */
+export function useActiveRuns(): ActiveRun[] {
+  return useSyncExternalStore(
+    runStore.subscribe,
+    () => runStore.getActiveRuns(),
+    () => [],
+  );
+}
+
 /** Returns the most recently completed/aborted run for a workflow (persists after activeRun clears). */
 export function useLastRun(workflowId: string | undefined): RunNotification | undefined {
   return useSyncExternalStore(

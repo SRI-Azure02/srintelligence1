@@ -62,6 +62,8 @@ export interface RunNotification {
 
 type Listener = () => void;
 
+const STORAGE_KEY = "sri_run_notifications";
+
 class RunStore {
   private _activeRuns:      Map<string, ActiveRun>       = new Map();
   private _notifications:   RunNotification[]            = [];
@@ -69,6 +71,35 @@ class RunStore {
   private _abortControllers: Map<string, AbortController> = new Map();
   /** Last completed/aborted run per workflow — survives after activeRun clears */
   private _lastRun:         Map<string, RunNotification> = new Map();
+
+  constructor() {
+    this._loadPersistedNotifications();
+  }
+
+  private _loadPersistedNotifications(): void {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as RunNotification[];
+      if (!Array.isArray(parsed)) return;
+      this._notifications = parsed;
+      // Rebuild _lastRun index from persisted data
+      for (const n of parsed) {
+        const existing = this._lastRun.get(n.workflowId);
+        if (!existing || n.completedAt > existing.completedAt) {
+          this._lastRun.set(n.workflowId, n);
+        }
+      }
+    } catch { /* corrupt data — ignore */ }
+  }
+
+  private _persistNotifications(): void {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this._notifications.slice(0, 50)));
+    } catch { /* quota exceeded — ignore */ }
+  }
 
   // ── Subscription (for useSyncExternalStore) ──────────────────────────────
   subscribe = (listener: Listener): (() => void) => {
@@ -249,6 +280,7 @@ class RunStore {
     };
     this._lastRun.set(workflowId, notif);
     this._notifications = [notif, ...this._notifications];
+    this._persistNotifications();
     this._notify();
   }
 
@@ -323,6 +355,7 @@ class RunStore {
     };
     this._lastRun.set(workflowId, notif);
     this._notifications = [notif, ...this._notifications];
+    this._persistNotifications();
     this._notify();
   }
 
@@ -332,6 +365,7 @@ class RunStore {
       this._notifications = this._notifications.map((x) =>
         x.id === notifId ? { ...x, read: true } : x
       );
+      this._persistNotifications();
       this._notify();
     }
   }
@@ -340,17 +374,20 @@ class RunStore {
     const anyUnread = this._notifications.some((n) => !n.read);
     if (!anyUnread) return;
     this._notifications = this._notifications.map((n) => ({ ...n, read: true }));
+    this._persistNotifications();
     this._notify();
   }
 
   dismiss(notifId: string): void {
     this._notifications = this._notifications.filter((n) => n.id !== notifId);
+    this._persistNotifications();
     this._notify();
   }
 
   dismissAll(): void {
     if (!this._notifications.length) return;
     this._notifications = [];
+    this._persistNotifications();
     this._notify();
   }
 }
