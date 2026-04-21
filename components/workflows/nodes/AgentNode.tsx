@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Handle, Position, NodeProps, useReactFlow } from "@xyflow/react";
-import { Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Pencil, Trash2, Search, AlertCircle, Loader, CheckCircle, Hourglass, BarChart2 } from "lucide-react";
+import { Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Pencil, Trash2, Search, AlertCircle, Hourglass, BarChart2 } from "lucide-react";
 
 export type RunNodeStatus = "idle" | "pending" | "running" | "done";
 
@@ -112,8 +112,10 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
       )}
       {runStatus === "done" && (
         <div className="absolute flex items-center justify-center rounded-full"
-          style={{ top: -8, right: -8, width: 20, height: 20, background: "#fff", border: "2px solid #22c55e", boxShadow: "0 1px 4px rgba(0,0,0,0.15)", zIndex: 10 }}>
-          <CheckCircle size={12} style={{ color: "#22c55e" }} />
+          style={{ top: -8, right: -8, width: 20, height: 20, background: "#22c55e", boxShadow: "0 2px 6px rgba(34,197,94,0.45)", zIndex: 10 }}>
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+            <path d="M2.5 5.5L4.5 7.5L8.5 3.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </div>
       )}
       {runStatus === "pending" && (

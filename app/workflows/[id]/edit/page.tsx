@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   Save, Play, Trash2, Pencil, Check,
   StickyNote, ChevronDown, FastForward, Bookmark, Trash,
-  Square, X, BarChart2, CheckCircle, Loader, TrendingUp,
+  Square, X, BarChart2, TrendingUp,
   Layers, Search, FileText,
 } from "lucide-react";
 import WorkflowCanvas, { edgeDefaults } from "@/components/workflows/WorkflowCanvas";
@@ -552,7 +552,12 @@ function RunReportPanel({
           className="flex items-center gap-2 px-3 py-2 rounded-lg"
           style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)" }}
         >
-          <CheckCircle size={13} style={{ color: "#22c55e", flexShrink: 0 }} />
+          <span className="flex items-center justify-center rounded-full shrink-0"
+            style={{ width: 16, height: 16, background: "#22c55e", boxShadow: "0 1px 4px rgba(34,197,94,0.4)" }}>
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+              <path d="M1.5 4.5L3.5 6.5L7.5 2.5" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
           <span className="text-xs font-medium" style={{ color: "#22c55e" }}>
             Execution complete
           </span>
@@ -647,7 +652,12 @@ function NodeResultSection({ node, artifact }: { node: RunNodeMeta; artifact?: S
         <span className="text-xs font-semibold flex-1 text-left" style={{ color }}>
           {node.label}
         </span>
-        <CheckCircle size={12} style={{ color: "#22c55e", flexShrink: 0 }} />
+        <span className="flex items-center justify-center rounded-full shrink-0"
+          style={{ width: 16, height: 16, background: "#22c55e", boxShadow: "0 1px 4px rgba(34,197,94,0.35)" }}>
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+            <path d="M1.5 4.5L3.5 6.5L7.5 2.5" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
         <ChevronDown size={12} style={{ color: "var(--text-muted)", transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
       </button>
 
