@@ -1,11 +1,102 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Plus, Pin, LayoutGrid, Wrench, X } from "lucide-react";
+import {
+  Plus, Pin, LayoutGrid, Wrench, X,
+  TrendingUp, Layers, GitFork, GitPullRequestArrow,
+  Activity, Cpu, FileText, Search,
+} from "lucide-react";
+import { LucideIcon } from "lucide-react";
 import WorkflowCardComponent from "@/components/workflows/WorkflowCard";
 import { WorkflowCard } from "@/lib/types";
 import { loadSavedWorkflows, deleteWorkflow } from "@/lib/workflow-storage";
+
+const TMPL_ICONS: Record<string, LucideIcon> = {
+  "sri-analyst":    Search,
+  "sri-forecast":   TrendingUp,
+  "sri-clustering": Layers,
+  "sri-mtree":      GitFork,
+  "sri-causal":     GitPullRequestArrow,
+  prophet:          TrendingUp,
+  sarima:           Activity,
+  "holt-winters":   TrendingUp,
+  xgboost:          Cpu,
+  hybrid:           TrendingUp,
+  "auto-forecast":  TrendingUp,
+  gmm:              Layers,
+  kmeans:           Layers,
+  kmedoids:         Layers,
+  dbscan:           Layers,
+  hierarchical:     Layers,
+  "auto-cluster":   Layers,
+  output:           FileText,
+};
+
+const TMPL_COLORS: Record<string, string> = {
+  "sri-analyst":    "#2891DA",
+  "sri-forecast":   "#34c98b",
+  "sri-clustering": "#a78bfa",
+  "sri-mtree":      "#fb923c",
+  "sri-causal":     "#8b5cf6",
+  prophet:          "#34c98b",
+  sarima:           "#34c98b",
+  "holt-winters":   "#34c98b",
+  xgboost:          "#f5a623",
+  hybrid:           "#34c98b",
+  "auto-forecast":  "#2891DA",
+  gmm:              "#a78bfa",
+  kmeans:           "#a78bfa",
+  kmedoids:         "#a78bfa",
+  dbscan:           "#a78bfa",
+  hierarchical:     "#a78bfa",
+  "auto-cluster":   "#2891DA",
+  output:           "#64748b",
+};
+
+function TemplateChain({ chain }: { chain: WorkflowCard["agentChain"] }) {
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {chain.map((step, i) => {
+        const Icon  = TMPL_ICONS[step.type]  ?? TrendingUp;
+        const color = TMPL_COLORS[step.type] ?? "#4f8ef7";
+        return (
+          <span key={step.id} className="flex items-center gap-1.5">
+            <span
+              className="flex items-center justify-center w-6 h-6 rounded"
+              style={{ background: "var(--bg-tertiary)" }}
+              title={step.label}
+            >
+              <Icon size={12} style={{ color: "#111111" }} strokeWidth={1.6} />
+            </span>
+            {i < chain.length - 1 && (
+              <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>→</span>
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function TemplateName({ name }: { name: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [truncated, setTruncated] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) setTruncated(el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth);
+  });
+  return (
+    <p
+      ref={ref}
+      className="text-sm font-semibold"
+      style={{ color: "var(--text-primary)" }}
+      title={truncated ? name : undefined}
+    >
+      {name}
+    </p>
+  );
+}
 
 function TemplatePickerModal({ workflows, onClose }: { workflows: WorkflowCard[]; onClose: () => void }) {
   return (
@@ -34,22 +125,14 @@ function TemplatePickerModal({ workflows, onClose }: { workflows: WorkflowCard[]
               key={wf.id}
               href={`/workflows/${wf.id}/edit`}
               onClick={onClose}
-              className="flex items-start gap-3 p-3 rounded-xl transition-colors hover:bg-black/4"
+              className="flex flex-col gap-2 p-3 rounded-xl transition-colors hover:bg-black/4"
               style={{ border: "1px solid var(--border)" }}
             >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{wf.name}</p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{wf.description}</p>
-                <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                  {wf.agentChain.map((s) => s.label).join(" → ")}
-                </p>
-              </div>
-              <span
-                className="text-xs px-2 py-0.5 rounded-full shrink-0 mt-0.5"
-                style={{ background: "rgba(40,145,218,0.08)", color: "var(--accent)", border: "1px solid rgba(40,145,218,0.2)" }}
-              >
-                Use template
-              </span>
+              <TemplateName name={wf.name} />
+              {wf.description && (
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>{wf.description}</p>
+              )}
+              <TemplateChain chain={wf.agentChain} />
             </Link>
           ))}
         </div>
