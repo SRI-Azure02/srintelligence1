@@ -1,12 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Play, Square, Edit2, Share2, Calendar, RefreshCw, Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Zap, Copy, Check, Trash2 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { WorkflowCard as WorkflowCardType } from "@/lib/types";
-import { useActiveRun } from "@/lib/use-run-store";
+import { useActiveRun, useLastRun } from "@/lib/use-run-store";
 import { runStore } from "@/lib/run-store";
+
+function fmtRelativeTime(ms: number): string {
+  const diff = Date.now() - ms;
+  if (diff < 60_000)  return "just now";
+  if (diff < 3_600_000) {
+    const m = Math.floor(diff / 60_000);
+    return `${m}m ago`;
+  }
+  if (diff < 86_400_000) {
+    const h = Math.floor(diff / 3_600_000);
+    return `${h}h ago`;
+  }
+  const d = Math.floor(diff / 86_400_000);
+  return `${d}d ago`;
+}
 
 const AGENT_ICONS: Record<string, LucideIcon> = {
   "sri-forecast":   TrendingUp,
@@ -68,8 +83,25 @@ interface WorkflowCardProps {
 export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete }: WorkflowCardProps) {
   const [shared, setShared] = useState(false);
   const [duplicated, setDuplicated] = useState(false);
+  const titleRef  = useRef<HTMLHeadingElement>(null);
+  const [isTruncated, setIsTruncated] = useState(false);
+
+  useEffect(() => {
+    const el = titleRef.current;
+    if (el) setIsTruncated(el.scrollWidth > el.clientWidth);
+  });
+
   const activeRun = useActiveRun(workflow.id);
+  const lastRun   = useLastRun(workflow.id);
   const isRunning = !!activeRun;
+
+  // Live-derived display values — fall back to static data when no in-session run exists
+  const displayLastRun  = lastRun
+    ? fmtRelativeTime(lastRun.completedAt)
+    : workflow.lastRun;
+  const displayRunCount = lastRun && lastRun.status !== "aborted"
+    ? workflow.runCount + 1
+    : workflow.runCount;
 
   const handleShare = () => {
     const url = `${window.location.origin}/workflows/${workflow.id}/edit`;
@@ -97,7 +129,12 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
         <div className="flex-1 min-w-0 flex flex-col gap-2">
           {/* Title row */}
           <div className="flex items-start justify-between gap-2">
-            <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+            <h3
+              ref={titleRef}
+              className="text-sm font-semibold truncate min-w-0"
+              style={{ color: "var(--text-primary)" }}
+              title={isTruncated ? workflow.name : undefined}
+            >
               {workflow.name}
             </h3>
             {isRunning ? (
@@ -139,7 +176,7 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
               )}
             </div>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Last run: {workflow.lastRun} · #{workflow.runCount} runs
+              Last run: {displayLastRun} · #{displayRunCount} runs
             </p>
           </div>
         </div>

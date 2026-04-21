@@ -456,6 +456,13 @@ function CompactVersionBar({
 }
 
 /** Cast a StoredArtifact to AgentArtifact for use in artifact display components. */
+function fmtDuration(ms: number): string {
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60000);
+  const s = Math.round((ms % 60000) / 1000);
+  return `${m}m ${s}s`;
+}
+
 function asArtifact(stored: StoredArtifact): AgentArtifact {
   return stored as unknown as AgentArtifact;
 }
@@ -591,7 +598,7 @@ function RunReportPanel({
           </span>
           <span className="text-xs font-medium" style={{ color: "#22c55e" }}>Execution complete</span>
           <span className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
-            {durationMs !== undefined ? `${(durationMs / 1000).toFixed(1)}s` : "—"}
+            {durationMs !== undefined ? fmtDuration(durationMs) : "—"}
           </span>
         </div>
 
@@ -690,18 +697,13 @@ function NodeResultSection({ node, artifact }: { node: RunNodeMeta; artifact?: S
   const category = getAgentCategory(node.agentType);
 
   const ICON_MAP: Record<string, React.ReactNode> = {
-    analyst:    <Search    size={12} style={{ color: "#2891DA" }} />,
-    forecast:   <TrendingUp size={12} style={{ color: "#34c98b" }} />,
-    clustering: <Layers    size={12} style={{ color: "#a78bfa" }} />,
-    mtree:      <BarChart2 size={12} style={{ color: "#fb923c" }} />,
-    causal:     <BarChart2 size={12} style={{ color: "#8b5cf6" }} />,
-    output:     <FileText  size={12} style={{ color: "#64748b" }} />,
+    analyst:    <Search     size={12} style={{ color: "#111111" }} strokeWidth={1.8} />,
+    forecast:   <TrendingUp size={12} style={{ color: "#111111" }} strokeWidth={1.8} />,
+    clustering: <Layers     size={12} style={{ color: "#111111" }} strokeWidth={1.8} />,
+    mtree:      <BarChart2  size={12} style={{ color: "#111111" }} strokeWidth={1.8} />,
+    causal:     <BarChart2  size={12} style={{ color: "#111111" }} strokeWidth={1.8} />,
+    output:     <FileText   size={12} style={{ color: "#111111" }} strokeWidth={1.8} />,
   };
-  const COLOR_MAP: Record<string, string> = {
-    analyst: "#2891DA", forecast: "#34c98b", clustering: "#a78bfa",
-    mtree: "#fb923c", causal: "#8b5cf6", output: "#64748b",
-  };
-  const color = COLOR_MAP[category] ?? "var(--accent)";
 
   return (
     <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
@@ -709,10 +711,10 @@ function NodeResultSection({ node, artifact }: { node: RunNodeMeta; artifact?: S
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-2 px-3 py-2.5 transition-colors hover:bg-black/3"
-        style={{ background: `${color}08`, borderBottom: open ? "1px solid var(--border)" : "none" }}
+        style={{ background: "var(--bg-secondary)", borderBottom: open ? "1px solid var(--border)" : "none" }}
       >
         {ICON_MAP[category]}
-        <span className="text-xs font-semibold flex-1 text-left" style={{ color }}>
+        <span className="text-xs font-semibold flex-1 text-left" style={{ color: "#111111" }}>
           {node.label}
         </span>
         <span className="flex items-center justify-center rounded-full shrink-0"
