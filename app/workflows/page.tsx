@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Plus, Pin, LayoutGrid, Wrench, X,
   TrendingUp, Layers, GitFork, GitPullRequestArrow,
@@ -379,6 +380,7 @@ function SortDropdown({ value, onChange }: { value: SortKey; onChange: (k: SortK
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function WorkflowsPage() {
+  const router = useRouter();
   const [showTemplate, setShowTemplate] = useState(false);
   const [workflows, setWorkflows]       = useState<WorkflowCard[]>([]);
   const [query, setQuery]               = useState("");
@@ -392,20 +394,42 @@ export default function WorkflowsPage() {
     return () => window.removeEventListener("sri_workflows_updated", handleUpdate);
   }, []);
 
-  // Focus search on "/" key
+  // Page-level keyboard shortcuts
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const tag = document.activeElement?.tagName;
-      if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {
+      const tag    = document.activeElement?.tagName;
+      const active = document.activeElement as HTMLElement | null;
+      const inField = tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable;
+
+      // "/" — focus search (when not already in a field)
+      if (e.key === "/" && !inField) {
         e.preventDefault();
         searchRef.current?.focus();
+        return;
       }
-      if (e.key === "Escape") searchRef.current?.blur();
+      // Escape — blur search input
+      if (e.key === "Escape") {
+        searchRef.current?.blur();
+        return;
+      }
+
+      // Below shortcuts should NOT fire when typing
+      if (inField) return;
+
+      // N — new workflow
+      if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        router.push("/workflows/new/edit");
+      }
+      // 1 — grid view
+      if (e.key === "1") setViewMode("grid");
+      // 2 — list view
+      if (e.key === "2") setViewMode("list");
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
+  }, [router]);
 
   const handleDuplicate = (id: string) => {
     const source = workflows.find((w) => w.id === id);

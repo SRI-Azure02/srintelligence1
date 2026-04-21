@@ -998,6 +998,22 @@ export default function WorkflowEditPage() {
     runStore.startRun(workflowId, workflowName, nodeMeta);
   }, [isRunning, workflowId, workflowName]);
 
+  // ── Canvas keyboard shortcut: R = run/abort ───────────────────────────────
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      const tag    = document.activeElement?.tagName;
+      const active = document.activeElement as HTMLElement | null;
+      if (tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        handleRun();
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [handleRun]);
+
   return (
     <div className="flex flex-col h-full" style={{ background: "#ffffff" }}>
 

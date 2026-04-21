@@ -2,14 +2,16 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Bell, User, LogOut, ChevronDown, X, CheckCircle,
   AlertCircle, Ban, Search, Layers, TrendingUp,
-  FileText, BarChart2, ExternalLink, Trash2, CheckCheck,
+  FileText, BarChart2, ExternalLink, Trash2, CheckCheck, Keyboard,
 } from "lucide-react";
 import { useNotifications, useUnreadCount } from "@/lib/use-run-store";
 import { runStore } from "@/lib/run-store";
 import type { RunNotification, RunNodeMeta, StoredArtifact } from "@/lib/run-store";
+import KeyboardShortcutsModal from "@/components/layout/KeyboardShortcutsModal";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function timeAgo(ms: number): string {
@@ -399,56 +401,142 @@ function UserMenu() {
 
 // ── TopBar ────────────────────────────────────────────────────────────────────
 export default function TopBar() {
-  const [notifOpen, setNotifOpen] = useState(false);
-  const unread = useUnreadCount();
+  const [notifOpen,       setNotifOpen]       = useState(false);
+  const [showShortcuts,   setShowShortcuts]   = useState(false);
+  const unread  = useUnreadCount();
+  const router  = useRouter();
+
+  // g-mode state (for G → C/W/D navigation sequences)
+  const gModeRef      = useRef(false);
+  const gModeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      const active = document.activeElement as HTMLElement | null;
+      const tag    = active?.tagName;
+      // Never fire shortcuts when typing in inputs / contenteditable
+      if (tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable) return;
+
+      // Escape — close any open overlay
+      if (e.key === "Escape") {
+        setShowShortcuts(false);
+        setNotifOpen(false);
+        return;
+      }
+
+      // When in g-mode, consume the next key as a navigation target
+      if (gModeRef.current) {
+        gModeRef.current = false;
+        if (gModeTimerRef.current) clearTimeout(gModeTimerRef.current);
+        e.preventDefault();
+        const k = e.key.toLowerCase();
+        if (k === "c") router.push("/chat");
+        if (k === "w") router.push("/workflows");
+        if (k === "d") router.push("/data-explore");
+        return;
+      }
+
+      // g — enter g-mode
+      if (e.key === "g") {
+        // Only if no modifier keys
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        gModeRef.current = true;
+        gModeTimerRef.current = setTimeout(() => { gModeRef.current = false; }, 1500);
+        return;
+      }
+
+      // ? — toggle shortcuts modal
+      if (e.key === "?") {
+        e.preventDefault();
+        setShowShortcuts((s) => !s);
+      }
+    };
+
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [router]);
 
   return (
-    <header
-      className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0"
-      style={{ background: "#F9F8F4", borderBottom: "1px solid var(--border)" }}
-    >
-      {/* Logo */}
-      <Link href="/chat" className="flex flex-col gap-0" style={{ textDecoration: "none" }}>
-        <div className="flex items-baseline gap-0 font-bold tracking-tight" style={{ fontSize: "28px", lineHeight: 1.15 }}>
-          <span className="brand-gradient">SRIntelligence</span>
-          <sup className="brand-gradient"
-            style={{ fontSize: "0.5em", fontWeight: 500, verticalAlign: "0.6em", lineHeight: 1, marginLeft: "1px" }}>™</sup>
-        </div>
-        <span style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.10em", color: "#0f172a", lineHeight: 1, marginTop: "7px" }}>
-          STRATEGIC RESEARCH INSIGHTS, INC.
-        </span>
-      </Link>
+    <>
+      <header
+        className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0"
+        style={{ background: "#F9F8F4", borderBottom: "1px solid var(--border)" }}
+      >
+        {/* Logo */}
+        <Link href="/chat" className="flex flex-col gap-0" style={{ textDecoration: "none" }}>
+          <div className="flex items-baseline gap-0 font-bold tracking-tight" style={{ fontSize: "28px", lineHeight: 1.15 }}>
+            <span className="brand-gradient">SRIntelligence</span>
+            <sup className="brand-gradient"
+              style={{ fontSize: "0.5em", fontWeight: 500, verticalAlign: "0.6em", lineHeight: 1, marginLeft: "1px" }}>™</sup>
+          </div>
+          <span style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.10em", color: "#0f172a", lineHeight: 1, marginTop: "7px" }}>
+            STRATEGIC RESEARCH INSIGHTS, INC.
+          </span>
+        </Link>
 
-      {/* Right controls */}
-      <div className="flex items-center gap-2">
-        <div className="relative">
+        {/* Right controls */}
+        <div className="flex items-center gap-1">
+
+          {/* Keyboard shortcuts hint button */}
           <button
-            onClick={() => {
-              setNotifOpen((v) => !v);
-              if (!notifOpen) runStore.markAllRead();
-            }}
-            className="p-1.5 rounded-lg transition-colors hover:bg-black/7"
-            style={{ color: unread > 0 ? "var(--accent)" : "var(--text-muted)" }}
-            title="Notifications"
+            onClick={() => setShowShortcuts((v) => !v)}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors hover:bg-black/7"
+            style={{ color: "var(--text-muted)" }}
+            title="Keyboard shortcuts (?)"
           >
-            <Bell size={16} />
-            {unread > 0 && (
-              <span
-                className="absolute flex items-center justify-center rounded-full text-white font-bold"
-                style={{
-                  top: 2, right: 2,
-                  width: unread > 9 ? 16 : 14, height: 14,
-                  background: "#ef4444", fontSize: 9, lineHeight: 1, pointerEvents: "none",
-                }}
-              >
-                {unread > 9 ? "9+" : unread}
-              </span>
-            )}
+            <Keyboard size={14} />
+            <kbd
+              className="text-xs font-mono leading-none"
+              style={{
+                background: "var(--bg-tertiary)",
+                border: "1px solid var(--border)",
+                borderRadius: 4,
+                padding: "1px 4px",
+                color: "var(--text-muted)",
+                boxShadow: "0 1px 0 var(--border)",
+              }}
+            >
+              ?
+            </kbd>
           </button>
-          {notifOpen && <NotificationsPane onClose={() => setNotifOpen(false)} />}
+
+          {/* Notifications */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setNotifOpen((v) => !v);
+                if (!notifOpen) runStore.markAllRead();
+              }}
+              className="p-1.5 rounded-lg transition-colors hover:bg-black/7"
+              style={{ color: unread > 0 ? "var(--accent)" : "var(--text-muted)" }}
+              title="Notifications"
+            >
+              <Bell size={16} />
+              {unread > 0 && (
+                <span
+                  className="absolute flex items-center justify-center rounded-full text-white font-bold"
+                  style={{
+                    top: 2, right: 2,
+                    width: unread > 9 ? 16 : 14, height: 14,
+                    background: "#ef4444", fontSize: 9, lineHeight: 1, pointerEvents: "none",
+                  }}
+                >
+                  {unread > 9 ? "9+" : unread}
+                </span>
+              )}
+            </button>
+            {notifOpen && <NotificationsPane onClose={() => setNotifOpen(false)} />}
+          </div>
+
+          <UserMenu />
         </div>
-        <UserMenu />
-      </div>
-    </header>
+      </header>
+
+      {/* Keyboard shortcuts modal */}
+      {showShortcuts && (
+        <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />
+      )}
+    </>
   );
 }

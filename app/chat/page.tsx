@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Clock } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import ChatInput from "@/components/chat/ChatInput";
 import { useChatHistory } from "@/components/providers/ChatHistoryProvider";
 
@@ -41,6 +41,22 @@ export default function ChatHome() {
     sessionStorage.setItem(`pendingPlan:${id}`, query);
     router.push(`/chat/${id}`);
   };
+
+  // ⌘K / Ctrl+K — focus the chat textarea
+  const focusChatInput = useCallback(() => {
+    (document.querySelector("textarea") as HTMLTextAreaElement | null)?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        focusChatInput();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [focusChatInput]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: "var(--bg-primary)" }}>

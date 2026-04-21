@@ -1007,10 +1007,16 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
       if ((e.metaKey || e.ctrlKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
+      // Escape — deselect node / close detail drawer
+      if (e.key === "Escape") {
+        setSelectedNode(null);
+        setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
+        setEdges((eds) => eds.map((ed) => ({ ...ed, selected: false })));
+      }
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [setNodes, setEdges, pushHistory, undo, redo]);
+  }, [setNodes, setEdges, setSelectedNode, pushHistory, undo, redo]);
 
   const updateNodeData = useCallback((id: string, data: Record<string, unknown>) => {
     setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data } : n)));
