@@ -484,6 +484,7 @@ function RunReportPanel({
   runNodes,
   nodeArtifact,
   nodeArtifacts,
+  durationMs,
   onClose,
 }: {
   nodeId:         string;
@@ -493,6 +494,7 @@ function RunReportPanel({
   runNodes:       RunNodeMeta[];
   nodeArtifact?:  StoredArtifact;
   nodeArtifacts:  Record<string, StoredArtifact>;
+  durationMs?:    number;
   onClose:        () => void;
 }) {
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_W);
@@ -589,7 +591,7 @@ function RunReportPanel({
           </span>
           <span className="text-xs font-medium" style={{ color: "#22c55e" }}>Execution complete</span>
           <span className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
-            {(0.8 + Math.random() * 1).toFixed(1)}s
+            {durationMs !== undefined ? `${(durationMs / 1000).toFixed(1)}s` : "—"}
           </span>
         </div>
 
@@ -852,6 +854,10 @@ export default function WorkflowEditPage() {
   // Real artifacts from agent execution, keyed by node ID
   const nodeArtifacts: Record<string, StoredArtifact> =
     (activeRun?.nodeArtifacts ?? lastRun?.nodeArtifacts ?? {}) as Record<string, StoredArtifact>;
+  // Actual total run duration in ms (only available once the run completes)
+  const runDurationMs: number | undefined = lastRun
+    ? lastRun.completedAt - lastRun.startedAt
+    : undefined;
   const [reportNode, setReportNode] = useState<{ nodeId: string; agentType: string; label: string } | null>(null);
   const canvasRef = useRef<WorkflowCanvasHandle>(null);
 
@@ -1178,6 +1184,7 @@ export default function WorkflowEditPage() {
             runNodes={runNodes}
             nodeArtifact={nodeArtifacts[reportNode.nodeId]}
             nodeArtifacts={nodeArtifacts}
+            durationMs={runDurationMs}
             onClose={() => setReportNode(null)}
           />
         )}
