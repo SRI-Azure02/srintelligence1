@@ -17,7 +17,7 @@ import type { WorkflowVersion } from "@/lib/workflow-versions";
 import type { AgentStep } from "@/lib/types";
 import { Node, Edge } from "@xyflow/react";
 import { runStore } from "@/lib/run-store";
-import type { RunNodeMeta } from "@/lib/run-store";
+import type { RunNodeMeta, StoredArtifact } from "@/lib/run-store";
 import { useActiveRun, useLastRun } from "@/lib/use-run-store";
 import type { AgentArtifact } from "@/src/types/agent";
 import ForecastArtifact from "@/src/components/artifacts/ForecastArtifact";
@@ -455,83 +455,10 @@ function CompactVersionBar({
   );
 }
 
-// ── Mock result data shaped for the real artifact components ─────────────────
-const ANALYST_ROWS = [
-  { "Plan Name": "BlueCross PPO",   "Claims": 12430, "Fill Rate %": 87.2, "Avg OOP ($)": 8.40 },
-  { "Plan Name": "Aetna HMO",       "Claims": 8921,  "Fill Rate %": 82.1, "Avg OOP ($)": 15.20 },
-  { "Plan Name": "UHC Choice Plus", "Claims": 6102,  "Fill Rate %": 79.5, "Avg OOP ($)": 22.10 },
-  { "Plan Name": "Cigna OAP",       "Claims": 4877,  "Fill Rate %": 84.3, "Avg OOP ($)": 11.50 },
-  { "Plan Name": "Humana Gold",     "Claims": 3214,  "Fill Rate %": 76.8, "Avg OOP ($)": 28.70 },
-];
-
-const CLUSTER_DATA = {
-  algorithm: "GMM",
-  clusterCount: 2,
-  silhouetteScore: 0.72,
-  totalRecords: 35544,
-  segments: [
-    { id: 0, name: "High Performers", size: 14558, pct: 40.9,
-      characteristics: ["High fill rate (>85%)", "Low avg OOP (<$12)"],
-      avgValues: { "Fill Rate %": 85.7, "Avg OOP ($)": 9.95 } },
-    { id: 1, name: "At-Risk Payers",  size: 20986, pct: 59.1,
-      characteristics: ["Lower fill rate (<83%)", "High avg OOP (>$15)"],
-      avgValues: { "Fill Rate %": 80.8, "Avg OOP ($)": 22.0 } },
-  ],
-};
-
-const FORECAST_DATA = {
-  forecast: [
-    { date: "Jan 2025", forecast: 8420,  lower: 7980,  upper: 8860 },
-    { date: "Feb 2025", forecast: 8105,  lower: 7640,  upper: 8570 },
-    { date: "Mar 2025", forecast: 9230,  lower: 8710,  upper: 9750 },
-    { date: "Apr 2025", forecast: 9670,  lower: 9120,  upper: 10220 },
-    { date: "May 2025", forecast: 10140, lower: 9560,  upper: 10720 },
-    { date: "Jun 2025", forecast: 10890, lower: 10280, upper: 11500 },
-  ],
-  metrics: { mape: 4.8, mae: 312, model: "Prophet", trainedOn: "Jan 2023 – Dec 2024" },
-  insights: ["Upward seasonal trend projected through Q2 2025",
-             "Confidence bands widen beyond the 4-month horizon"],
-};
-
-/** Create a minimal AgentArtifact-compatible object for the report components. */
-function mockArtifact(data: unknown, intent = "SQL_QUERY"): AgentArtifact {
-  return {
-    id: "wf-mock",
-    agentName: "Workflow",
-    intent:      intent      as AgentArtifact["intent"],
-    data,
-    createdAt:   Date.now(),
-    lineageId:   "wf-mock",
-    cacheStatus: "MISS"      as AgentArtifact["cacheStatus"],
-  };
+/** Cast a StoredArtifact to AgentArtifact for use in artifact display components. */
+function asArtifact(stored: StoredArtifact): AgentArtifact {
+  return stored as unknown as AgentArtifact;
 }
-
-// Kept for CombinedOutputReport compact summaries
-const ANALYST_RESULT = {
-  headers: ["Plan Name", "Claims", "Fill Rate", "Avg OOP"],
-  rows: ANALYST_ROWS.map(r => [r["Plan Name"], String(r["Claims"]), `${r["Fill Rate %"]}%`, `$${r["Avg OOP ($)"]}`]),
-};
-const CLUSTER_RESULT = {
-  segments: CLUSTER_DATA.segments.map((s, i) => ({
-    name: s.name, plans: [] as string[],
-    characteristics: s.characteristics.join(", "),
-    confidence: `Silhouette: ${CLUSTER_DATA.silhouetteScore}`,
-    color: i === 0 ? "#2891DA" : "#a78bfa",
-  })),
-};
-const FORECAST_RESULT = {
-  metrics: [
-    { label: "Model",        value: "Prophet (auto-selected)" },
-    { label: "Horizon",      value: "12 months" },
-    { label: "MAPE",         value: "4.8%" },
-    { label: "MAE",          value: "312 units" },
-    { label: "Train period", value: "Jan 2023 – Dec 2024" },
-  ],
-  rows: FORECAST_DATA.forecast.map(r => ({
-    month: r.date, forecast: r.forecast.toLocaleString(),
-    lower: r.lower.toLocaleString(), upper: r.upper.toLocaleString(),
-  })),
-};
 
 function getAgentCategory(agentType: string) {
   const forecasters = new Set(["sri-forecast","prophet","sarima","holt-winters","xgboost","hybrid","auto-forecast"]);
@@ -551,16 +478,19 @@ function RunReportPanel({
   label,
   runNodeStates,
   runNodes,
+  nodeArtifact,
+  nodeArtifacts,
   onClose,
 }: {
-  nodeId:        string;
-  agentType:     string;
-  label:         string;
-  runNodeStates: Record<string, RunNodeStatus>;
-  runNodes:      RunNodeMeta[];
-  onClose:       () => void;
+  nodeId:         string;
+  agentType:      string;
+  label:          string;
+  runNodeStates:  Record<string, RunNodeStatus>;
+  runNodes:       RunNodeMeta[];
+  nodeArtifact?:  StoredArtifact;
+  nodeArtifacts:  Record<string, StoredArtifact>;
+  onClose:        () => void;
 }) {
-  const status   = runNodeStates[nodeId] ?? "done";
   const category = getAgentCategory(agentType);
 
   const ICON_MAP: Record<string, React.ReactNode> = {
@@ -632,30 +562,41 @@ function RunReportPanel({
         </div>
 
         {/* ── Analyst: real DataTableArtifact ───────────────────────────── */}
-        {category === "analyst" && (
-          <DataTableArtifact artifact={mockArtifact(ANALYST_ROWS, "SQL_QUERY")} />
+        {category === "analyst" && nodeArtifact && (
+          <DataTableArtifact artifact={asArtifact(nodeArtifact)} />
+        )}
+        {category === "analyst" && !nodeArtifact && (
+          <div className="rounded-xl px-3 py-6 text-center text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+            Results will appear here after the workflow runs.
+          </div>
         )}
 
         {/* ── Clustering: real SegmentationArtifact ─────────────────────── */}
-        {category === "clustering" && (
-          <SegmentationArtifact artifact={mockArtifact(CLUSTER_DATA, "CLUSTER_GMM")} />
+        {category === "clustering" && nodeArtifact && (
+          <SegmentationArtifact artifact={asArtifact(nodeArtifact)} />
+        )}
+        {category === "clustering" && !nodeArtifact && (
+          <div className="rounded-xl px-3 py-6 text-center text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+            Results will appear here after the workflow runs.
+          </div>
         )}
 
         {/* ── Forecast: real ForecastArtifact ───────────────────────────── */}
-        {category === "forecast" && (
-          <ForecastArtifact artifact={mockArtifact(FORECAST_DATA, "FORECAST_PROPHET")} />
+        {category === "forecast" && nodeArtifact && (
+          <ForecastArtifact artifact={asArtifact(nodeArtifact)} />
+        )}
+        {category === "forecast" && !nodeArtifact && (
+          <div className="rounded-xl px-3 py-6 text-center text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+            Results will appear here after the workflow runs.
+          </div>
         )}
 
-        {/* kept for TypeScript — accentColor used below in combined output */}
-        {false && (
-          <span style={{ color: accentColor }}>{/* placeholder */}</span>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* ── accentColor used by output section below ───────────────────── */}
+        {false && <span style={{ color: accentColor }} />}
+
         {/* ── Output: combined collapsible report ───────────────────────── */}
         {category === "output" && (
-          <CombinedOutputReport runNodes={runNodes} />
+          <CombinedOutputReport runNodes={runNodes} nodeArtifacts={nodeArtifacts} />
         )}
 
         {/* ── mtree / causal: placeholder summary ───────────────────────── */}
@@ -676,7 +617,7 @@ function RunReportPanel({
 }
 
 // ── Combined output report (collapsible sections per node) ───────────────────
-function NodeResultSection({ node }: { node: RunNodeMeta }) {
+function NodeResultSection({ node, artifact }: { node: RunNodeMeta; artifact?: StoredArtifact }) {
   const [open, setOpen] = useState(true);
   const category = getAgentCategory(node.agentType);
 
@@ -713,87 +654,23 @@ function NodeResultSection({ node }: { node: RunNodeMeta }) {
       {/* Section body */}
       {open && (
         <div className="p-3 flex flex-col gap-3">
-          {category === "analyst" && (
-            <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr style={{ background: "var(--bg-secondary)" }}>
-                    {ANALYST_RESULT.headers.map((h) => (
-                      <th key={h} className="px-2 py-1.5 text-left font-semibold"
-                        style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {ANALYST_RESULT.rows.map((row, ri) => (
-                    <tr key={ri} style={{ borderBottom: ri < ANALYST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className="px-2 py-1.5" style={{ color: "var(--text-primary)" }}>{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {(category === "analyst") && artifact && (
+            <DataTableArtifact artifact={asArtifact(artifact)} />
+          )}
+          {(category === "clustering") && artifact && (
+            <SegmentationArtifact artifact={asArtifact(artifact)} />
+          )}
+          {(category === "forecast") && artifact && (
+            <ForecastArtifact artifact={asArtifact(artifact)} />
+          )}
+          {artifact?.narrative && (category === "mtree" || category === "causal") && (
+            <div className="rounded-lg px-3 py-3 text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
+              {artifact.narrative}
             </div>
           )}
-
-          {category === "clustering" && CLUSTER_RESULT.segments.map((seg, i) => (
-            <div key={i} className="rounded-lg p-2.5 flex flex-col gap-1"
-              style={{ background: `${seg.color}08`, border: `1px solid ${seg.color}30` }}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold" style={{ color: seg.color }}>
-                  Segment {String.fromCharCode(65 + i)}: {seg.name}
-                </span>
-                <span className="text-xs px-1.5 py-0.5 rounded-full"
-                  style={{ background: `${seg.color}18`, color: seg.color, fontWeight: 600 }}>
-                  {seg.plans.length} plans
-                </span>
-              </div>
-              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{seg.plans.join(" · ")}</p>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{seg.characteristics}</p>
-            </div>
-          ))}
-
-          {category === "forecast" && (
-            <>
-              <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-                {FORECAST_RESULT.metrics.map((m, i) => (
-                  <div key={i} className="flex items-center justify-between px-2 py-1.5"
-                    style={{ borderBottom: i < FORECAST_RESULT.metrics.length - 1 ? "1px solid var(--border)" : "none",
-                             background: i % 2 === 0 ? "var(--bg-secondary)" : "#ffffff" }}>
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>{m.label}</span>
-                    <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>{m.value}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr style={{ background: "var(--bg-secondary)" }}>
-                      {["Month", "Forecast", "Lower", "Upper"].map((h) => (
-                        <th key={h} className="px-2 py-1.5 text-left font-semibold"
-                          style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {FORECAST_RESULT.rows.map((r, ri) => (
-                      <tr key={ri} style={{ borderBottom: ri < FORECAST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
-                        <td className="px-2 py-1.5" style={{ color: "var(--text-muted)" }}>{r.month}</td>
-                        <td className="px-2 py-1.5 font-semibold" style={{ color }}>{r.forecast}</td>
-                        <td className="px-2 py-1.5" style={{ color: "var(--text-secondary)" }}>{r.lower}</td>
-                        <td className="px-2 py-1.5" style={{ color: "var(--text-secondary)" }}>{r.upper}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-
-          {(category === "mtree" || category === "causal") && (
+          {!artifact && (
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Analysis complete. Results contributed to the combined output.
+              No results available for this node.
             </p>
           )}
         </div>
@@ -802,7 +679,13 @@ function NodeResultSection({ node }: { node: RunNodeMeta }) {
   );
 }
 
-function CombinedOutputReport({ runNodes }: { runNodes: RunNodeMeta[] }) {
+function CombinedOutputReport({
+  runNodes,
+  nodeArtifacts,
+}: {
+  runNodes:      RunNodeMeta[];
+  nodeArtifacts: Record<string, StoredArtifact>;
+}) {
   const agentNodes = runNodes.filter(
     (n) => n.id !== "output" && n.agentType !== "output" && n.agentType !== "outputNode"
   );
@@ -827,7 +710,7 @@ function CombinedOutputReport({ runNodes }: { runNodes: RunNodeMeta[] }) {
         </span>
       </div>
       {agentNodes.map((node) => (
-        <NodeResultSection key={node.id} node={node} />
+        <NodeResultSection key={node.id} node={node} artifact={nodeArtifacts[node.id]} />
       ))}
     </div>
   );
@@ -887,14 +770,17 @@ export default function WorkflowEditPage() {
   const [nameHovered,  setNameHovered]  = useState(false);
 
   // Run — backed by the global singleton so timers survive navigation
-  const activeRun     = useActiveRun(workflowId);
-  const lastRun       = useLastRun(workflowId);
-  const isRunning     = !!activeRun;
+  const activeRun      = useActiveRun(workflowId);
+  const lastRun        = useLastRun(workflowId);
+  const isRunning      = !!activeRun;
   // After the run completes, fall back to lastRun so green checkmarks stay visible
-  const runNodeStates = (activeRun?.nodeStates ?? lastRun?.nodeStates ?? {}) as Record<string, RunNodeStatus>;
+  const runNodeStates  = (activeRun?.nodeStates  ?? lastRun?.nodeStates  ?? {}) as Record<string, RunNodeStatus>;
   // runNodes: prefer the live run's nodes, fall back to last completed run so
   // the output report can access them even after the active run clears.
   const runNodes: RunNodeMeta[] = activeRun?.nodes ?? lastRun?.nodes ?? [];
+  // Real artifacts from agent execution, keyed by node ID
+  const nodeArtifacts: Record<string, StoredArtifact> =
+    (activeRun?.nodeArtifacts ?? lastRun?.nodeArtifacts ?? {}) as Record<string, StoredArtifact>;
   const [reportNode, setReportNode] = useState<{ nodeId: string; agentType: string; label: string } | null>(null);
   const canvasRef = useRef<WorkflowCanvasHandle>(null);
 
@@ -1219,6 +1105,8 @@ export default function WorkflowEditPage() {
             label={reportNode.label}
             runNodeStates={runNodeStates}
             runNodes={runNodes}
+            nodeArtifact={nodeArtifacts[reportNode.nodeId]}
+            nodeArtifacts={nodeArtifacts}
             onClose={() => setReportNode(null)}
           />
         )}

@@ -724,7 +724,7 @@ function getTopologicalOrder(nodes: Node[], edges: Edge[]): string[] {
 // ── Public handle exposed via forwardRef ────────────────────────────────────
 export interface WorkflowCanvasHandle {
   getOrderedNodeIds:   () => string[];
-  getOrderedNodeMeta:  () => Array<{ id: string; agentType: string; label: string }>;
+  getOrderedNodeMeta:  () => Array<{ id: string; agentType: string; label: string; prompt?: string }>;
   /** Returns the current canvas as an AgentStep[] chain for persistence. */
   getAgentChain: () => import("@/lib/types").AgentStep[];
 }
@@ -798,6 +798,7 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
           id,
           agentType: (node?.data?.agentType as string) ?? (node?.type === "outputNode" ? "output" : "sri-analyst"),
           label:     (node?.data?.label     as string) ?? (node?.type === "outputNode" ? "Output" : id),
+          prompt:    (node?.data?.prompt    as string) ?? "",
         };
       });
     },
