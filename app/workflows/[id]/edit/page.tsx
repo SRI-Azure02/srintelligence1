@@ -6,7 +6,7 @@ import {
   Save, Play, Trash2, Pencil, Check,
   StickyNote, ChevronDown, FastForward, Bookmark, Trash,
   Square, X, BarChart2, TrendingUp,
-  Layers, Search, FileText,
+  Layers, Search, FileText, Maximize2, Minimize2,
 } from "lucide-react";
 import WorkflowCanvas, { edgeDefaults } from "@/components/workflows/WorkflowCanvas";
 import type { WorkflowCanvasHandle } from "@/components/workflows/WorkflowCanvas";
@@ -472,6 +472,10 @@ function getAgentCategory(agentType: string) {
 }
 
 // ── Run Report Panel ─────────────────────────────────────────────────────────
+const MIN_PANEL_W = 300;
+const MAX_PANEL_W = 900;
+const DEFAULT_PANEL_W = 380;
+
 function RunReportPanel({
   nodeId,
   agentType,
@@ -491,39 +495,52 @@ function RunReportPanel({
   nodeArtifacts:  Record<string, StoredArtifact>;
   onClose:        () => void;
 }) {
-  const category = getAgentCategory(agentType);
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_W);
+  const [isPopout,   setIsPopout]   = useState(false);
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
 
+  // ── Resize drag ────────────────────────────────────────────────────────
+  const handleResizeDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startW: panelWidth };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta  = dragRef.current.startX - ev.clientX;
+      const newW   = Math.max(MIN_PANEL_W, Math.min(MAX_PANEL_W, dragRef.current.startW + delta));
+      setPanelWidth(newW);
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup",   onUp);
+      document.body.style.cursor       = "";
+      document.body.style.userSelect   = "";
+    };
+    document.body.style.cursor     = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup",   onUp);
+  }, [panelWidth]);
+
+  const category    = getAgentCategory(agentType);
   const ICON_MAP: Record<string, React.ReactNode> = {
-    analyst:    <Search   size={14} style={{ color: "#2891DA" }} />,
+    analyst:    <Search     size={14} style={{ color: "#2891DA" }} />,
     forecast:   <TrendingUp size={14} style={{ color: "#34c98b" }} />,
-    clustering: <Layers   size={14} style={{ color: "#a78bfa" }} />,
-    output:     <FileText size={14} style={{ color: "#64748b" }} />,
-    mtree:      <BarChart2 size={14} style={{ color: "#fb923c" }} />,
-    causal:     <BarChart2 size={14} style={{ color: "#8b5cf6" }} />,
+    clustering: <Layers     size={14} style={{ color: "#a78bfa" }} />,
+    output:     <FileText   size={14} style={{ color: "#64748b" }} />,
+    mtree:      <BarChart2  size={14} style={{ color: "#fb923c" }} />,
+    causal:     <BarChart2  size={14} style={{ color: "#8b5cf6" }} />,
   };
-
   const COLOR_MAP: Record<string, string> = {
-    analyst:    "#2891DA",
-    forecast:   "#34c98b",
-    clustering: "#a78bfa",
-    output:     "#64748b",
-    mtree:      "#fb923c",
-    causal:     "#8b5cf6",
+    analyst: "#2891DA", forecast: "#34c98b", clustering: "#a78bfa",
+    output:  "#64748b", mtree:    "#fb923c", causal:     "#8b5cf6",
   };
-
   const accentColor = COLOR_MAP[category] ?? "var(--accent)";
 
-  return (
-    <div
-      className="absolute right-0 top-0 bottom-0 flex flex-col"
-      style={{
-        width: 360,
-        background: "#ffffff",
-        borderLeft: "1px solid var(--border)",
-        boxShadow: "-4px 0 20px rgba(0,0,0,0.06)",
-        zIndex: 20,
-      }}
-    >
+  // ── Shared panel content ───────────────────────────────────────────────
+  const panelContent = (
+    <>
       {/* Header */}
       <div
         className="flex items-center justify-between px-4 py-3 shrink-0"
@@ -535,18 +552,30 @@ function RunReportPanel({
             {label}
           </span>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1 rounded hover:bg-black/5 transition-colors"
-          style={{ color: "var(--text-muted)" }}
-        >
-          <X size={14} />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Pop-out / restore */}
+          <button
+            onClick={() => setIsPopout((v) => !v)}
+            className="p-1.5 rounded hover:bg-black/5 transition-colors"
+            style={{ color: "var(--text-muted)" }}
+            title={isPopout ? "Restore panel" : "Pop out to full screen"}
+          >
+            {isPopout ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
+          {/* Close */}
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-black/5 transition-colors"
+            style={{ color: "var(--text-muted)" }}
+            title="Close"
+          >
+            <X size={13} />
+          </button>
+        </div>
       </div>
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-
         {/* Execution status pill */}
         <div
           className="flex items-center gap-2 px-3 py-2 rounded-lg"
@@ -558,65 +587,97 @@ function RunReportPanel({
               <path d="M1.5 4.5L3.5 6.5L7.5 2.5" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
-          <span className="text-xs font-medium" style={{ color: "#22c55e" }}>
-            Execution complete
-          </span>
+          <span className="text-xs font-medium" style={{ color: "#22c55e" }}>Execution complete</span>
           <span className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
             {(0.8 + Math.random() * 1).toFixed(1)}s
           </span>
         </div>
 
-        {/* ── Analyst: real DataTableArtifact ───────────────────────────── */}
-        {category === "analyst" && nodeArtifact && (
-          <DataTableArtifact artifact={asArtifact(nodeArtifact)} />
-        )}
-        {category === "analyst" && !nodeArtifact && (
-          <div className="rounded-xl px-3 py-6 text-center text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-            Results will appear here after the workflow runs.
-          </div>
-        )}
-
-        {/* ── Clustering: real SegmentationArtifact ─────────────────────── */}
-        {category === "clustering" && nodeArtifact && (
-          <SegmentationArtifact artifact={asArtifact(nodeArtifact)} />
-        )}
-        {category === "clustering" && !nodeArtifact && (
-          <div className="rounded-xl px-3 py-6 text-center text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-            Results will appear here after the workflow runs.
-          </div>
-        )}
-
-        {/* ── Forecast: real ForecastArtifact ───────────────────────────── */}
-        {category === "forecast" && nodeArtifact && (
-          <ForecastArtifact artifact={asArtifact(nodeArtifact)} />
-        )}
-        {category === "forecast" && !nodeArtifact && (
-          <div className="rounded-xl px-3 py-6 text-center text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-            Results will appear here after the workflow runs.
-          </div>
-        )}
-
-        {/* ── accentColor used by output section below ───────────────────── */}
+        {/* accentColor guard (keeps TS happy) */}
         {false && <span style={{ color: accentColor }} />}
 
-        {/* ── Output: combined collapsible report ───────────────────────── */}
+        {category === "analyst" && nodeArtifact && <DataTableArtifact artifact={asArtifact(nodeArtifact)} />}
+        {category === "analyst" && !nodeArtifact && <EmptyResult />}
+
+        {category === "clustering" && nodeArtifact && <SegmentationArtifact artifact={asArtifact(nodeArtifact)} />}
+        {category === "clustering" && !nodeArtifact && <EmptyResult />}
+
+        {category === "forecast" && nodeArtifact && <ForecastArtifact artifact={asArtifact(nodeArtifact)} />}
+        {category === "forecast" && !nodeArtifact && <EmptyResult />}
+
         {category === "output" && (
           <CombinedOutputReport runNodes={runNodes} nodeArtifacts={nodeArtifacts} />
         )}
 
-        {/* ── mtree / causal: placeholder summary ───────────────────────── */}
         {(category === "mtree" || category === "causal") && (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-              Analysis Complete
-            </p>
-            <div className="rounded-xl px-3 py-3 text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-              Results are included in the combined output report.
-            </div>
-          </div>
+          nodeArtifact
+            ? <div className="rounded-xl px-3 py-3 text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}>{(nodeArtifact as StoredArtifact).narrative ?? "Analysis complete."}</div>
+            : <EmptyResult />
         )}
-
       </div>
+    </>
+  );
+
+  // ── Popout (full-screen modal) ─────────────────────────────────────────
+  if (isPopout) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-6"
+        style={{ background: "rgba(0,0,0,0.40)", backdropFilter: "blur(3px)" }}
+        onClick={(e) => { if (e.target === e.currentTarget) setIsPopout(false); }}
+      >
+        <div
+          className="flex flex-col rounded-2xl overflow-hidden"
+          style={{
+            width: "min(92vw, 1200px)",
+            height: "min(92vh, 900px)",
+            background: "#ffffff",
+            boxShadow: "0 32px 80px rgba(0,0,0,0.22)",
+          }}
+        >
+          {panelContent}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Side panel (resizable) ─────────────────────────────────────────────
+  return (
+    <div
+      className="absolute right-0 top-0 bottom-0 flex flex-col"
+      style={{
+        width: panelWidth,
+        background: "#ffffff",
+        borderLeft: "1px solid var(--border)",
+        boxShadow: "-4px 0 24px rgba(0,0,0,0.07)",
+        zIndex: 20,
+      }}
+    >
+      {/* Drag-to-resize handle on the left edge */}
+      <div
+        onMouseDown={handleResizeDown}
+        className="group absolute top-0 left-0 bottom-0"
+        style={{ width: 6, cursor: "col-resize", zIndex: 30 }}
+        title="Drag to resize"
+      >
+        {/* Visible indicator line — appears on hover / drag */}
+        <div
+          className="absolute top-0 bottom-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ left: 2, width: 2, background: "var(--accent)", borderRadius: 2 }}
+        />
+      </div>
+
+      {panelContent}
+    </div>
+  );
+}
+
+// ── Empty result placeholder ─────────────────────────────────────────────────
+function EmptyResult() {
+  return (
+    <div className="rounded-xl px-3 py-6 text-center text-xs"
+      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+      Results will appear here after the workflow runs.
     </div>
   );
 }
