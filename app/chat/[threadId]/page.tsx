@@ -10,6 +10,7 @@ import ChatMessageComponent from "@/components/chat/ChatMessage";
 import PlanCard from "@/components/chat/PlanCard";
 import { ChatMessage, ChatThread, Plan, PlanStep, PlanStepStatus, AgentType, WorkflowCard, AgentStep } from "@/lib/types";
 import { saveWorkflow } from "@/lib/workflow-storage";
+import { appendVersion } from "@/lib/workflow-versions";
 import type { DispatchEvent, FormattedResponse, AgentArtifact } from "@/src/types/agent";
 import { parseForecastNarrative } from "@/src/components/artifacts/ForecastArtifact";
 import { fromV2ClusterData, fromResultTable, parseClusteringNarrative } from "@/src/components/artifacts/SegmentationArtifact";
@@ -858,6 +859,8 @@ export default function ThreadPage() {
     try {
       const wf = buildWorkflowCard(threadId, thread.title, thread.messages);
       saveWorkflow(wf);
+      // Seed version history with v1 so the slider shows it immediately on the canvas
+      appendVersion(wf.id, wf.name, wf.agentChain, "v1 — saved from chat conversation");
       setSavedWf(true);
       // Best-effort Snowflake persistence in background
       fetch("/api/workflows/from-chat", {

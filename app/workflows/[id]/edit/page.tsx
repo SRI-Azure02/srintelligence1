@@ -19,6 +19,10 @@ import { Node, Edge } from "@xyflow/react";
 import { runStore } from "@/lib/run-store";
 import type { RunNodeMeta } from "@/lib/run-store";
 import { useActiveRun, useLastRun } from "@/lib/use-run-store";
+import type { AgentArtifact } from "@/src/types/agent";
+import ForecastArtifact from "@/src/components/artifacts/ForecastArtifact";
+import DataTableArtifact from "@/src/components/artifacts/DataTableArtifact";
+import SegmentationArtifact from "@/src/components/artifacts/SegmentationArtifact";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type ScheduleType = "daily" | "weekly" | "monthly";
@@ -451,53 +455,82 @@ function CompactVersionBar({
   );
 }
 
-// ── Mock result data keyed by agent category ──────────────────────────────────
+// ── Mock result data shaped for the real artifact components ─────────────────
+const ANALYST_ROWS = [
+  { "Plan Name": "BlueCross PPO",   "Claims": 12430, "Fill Rate %": 87.2, "Avg OOP ($)": 8.40 },
+  { "Plan Name": "Aetna HMO",       "Claims": 8921,  "Fill Rate %": 82.1, "Avg OOP ($)": 15.20 },
+  { "Plan Name": "UHC Choice Plus", "Claims": 6102,  "Fill Rate %": 79.5, "Avg OOP ($)": 22.10 },
+  { "Plan Name": "Cigna OAP",       "Claims": 4877,  "Fill Rate %": 84.3, "Avg OOP ($)": 11.50 },
+  { "Plan Name": "Humana Gold",     "Claims": 3214,  "Fill Rate %": 76.8, "Avg OOP ($)": 28.70 },
+];
+
+const CLUSTER_DATA = {
+  algorithm: "GMM",
+  clusterCount: 2,
+  silhouetteScore: 0.72,
+  totalRecords: 35544,
+  segments: [
+    { id: 0, name: "High Performers", size: 14558, pct: 40.9,
+      characteristics: ["High fill rate (>85%)", "Low avg OOP (<$12)"],
+      avgValues: { "Fill Rate %": 85.7, "Avg OOP ($)": 9.95 } },
+    { id: 1, name: "At-Risk Payers",  size: 20986, pct: 59.1,
+      characteristics: ["Lower fill rate (<83%)", "High avg OOP (>$15)"],
+      avgValues: { "Fill Rate %": 80.8, "Avg OOP ($)": 22.0 } },
+  ],
+};
+
+const FORECAST_DATA = {
+  forecast: [
+    { date: "Jan 2025", forecast: 8420,  lower: 7980,  upper: 8860 },
+    { date: "Feb 2025", forecast: 8105,  lower: 7640,  upper: 8570 },
+    { date: "Mar 2025", forecast: 9230,  lower: 8710,  upper: 9750 },
+    { date: "Apr 2025", forecast: 9670,  lower: 9120,  upper: 10220 },
+    { date: "May 2025", forecast: 10140, lower: 9560,  upper: 10720 },
+    { date: "Jun 2025", forecast: 10890, lower: 10280, upper: 11500 },
+  ],
+  metrics: { mape: 4.8, mae: 312, model: "Prophet", trainedOn: "Jan 2023 – Dec 2024" },
+  insights: ["Upward seasonal trend projected through Q2 2025",
+             "Confidence bands widen beyond the 4-month horizon"],
+};
+
+/** Create a minimal AgentArtifact-compatible object for the report components. */
+function mockArtifact(data: unknown, intent = "SQL_QUERY"): AgentArtifact {
+  return {
+    id: "wf-mock",
+    agentName: "Workflow",
+    intent:      intent      as AgentArtifact["intent"],
+    data,
+    createdAt:   Date.now(),
+    lineageId:   "wf-mock",
+    cacheStatus: "MISS"      as AgentArtifact["cacheStatus"],
+  };
+}
+
+// Kept for CombinedOutputReport compact summaries
 const ANALYST_RESULT = {
   headers: ["Plan Name", "Claims", "Fill Rate", "Avg OOP"],
-  rows: [
-    ["BlueCross PPO",   "12,430", "87.2%", "$8.40"],
-    ["Aetna HMO",       "8,921", "82.1%", "$15.20"],
-    ["UHC Choice Plus", "6,102", "79.5%", "$22.10"],
-    ["Cigna OAP",       "4,877", "84.3%", "$11.50"],
-    ["Humana Gold",     "3,214", "76.8%", "$28.70"],
-  ],
+  rows: ANALYST_ROWS.map(r => [r["Plan Name"], String(r["Claims"]), `${r["Fill Rate %"]}%`, `$${r["Avg OOP ($)"]}`]),
 };
-
 const CLUSTER_RESULT = {
-  segments: [
-    {
-      name: "High Performers",
-      plans: ["BlueCross PPO", "Cigna OAP"],
-      characteristics: "High fill rate (>85%), Low OOP (<$12)",
-      confidence: "Silhouette: 0.72",
-      color: "#2891DA",
-    },
-    {
-      name: "At-Risk Payers",
-      plans: ["Aetna HMO", "UHC Choice Plus", "Humana Gold"],
-      characteristics: "Lower fill rate (<83%), High OOP (>$15)",
-      confidence: "Silhouette: 0.72",
-      color: "#a78bfa",
-    },
-  ],
+  segments: CLUSTER_DATA.segments.map((s, i) => ({
+    name: s.name, plans: [] as string[],
+    characteristics: s.characteristics.join(", "),
+    confidence: `Silhouette: ${CLUSTER_DATA.silhouetteScore}`,
+    color: i === 0 ? "#2891DA" : "#a78bfa",
+  })),
 };
-
 const FORECAST_RESULT = {
   metrics: [
-    { label: "Model",       value: "Prophet (auto-selected)" },
-    { label: "Horizon",     value: "12 months" },
-    { label: "MAPE",        value: "4.8%" },
-    { label: "MAE",         value: "312 units" },
+    { label: "Model",        value: "Prophet (auto-selected)" },
+    { label: "Horizon",      value: "12 months" },
+    { label: "MAPE",         value: "4.8%" },
+    { label: "MAE",          value: "312 units" },
     { label: "Train period", value: "Jan 2023 – Dec 2024" },
   ],
-  rows: [
-    { month: "Jan 2025", forecast: "8,420",  lower: "7,980",  upper: "8,860" },
-    { month: "Feb 2025", forecast: "8,105",  lower: "7,640",  upper: "8,570" },
-    { month: "Mar 2025", forecast: "9,230",  lower: "8,710",  upper: "9,750" },
-    { month: "Apr 2025", forecast: "9,670",  lower: "9,120",  upper: "10,220" },
-    { month: "May 2025", forecast: "10,140", lower: "9,560",  upper: "10,720" },
-    { month: "Jun 2025", forecast: "10,890", lower: "10,280", upper: "11,500" },
-  ],
+  rows: FORECAST_DATA.forecast.map(r => ({
+    month: r.date, forecast: r.forecast.toLocaleString(),
+    lower: r.lower.toLocaleString(), upper: r.upper.toLocaleString(),
+  })),
 };
 
 function getAgentCategory(agentType: string) {
@@ -598,155 +631,28 @@ function RunReportPanel({
           </span>
         </div>
 
-        {/* ── Analyst: data table ────────────────────────────────────────── */}
+        {/* ── Analyst: real DataTableArtifact ───────────────────────────── */}
         {category === "analyst" && (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-              Query Results — {ANALYST_RESULT.rows.length} rows
-            </p>
-            <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr style={{ background: "var(--bg-secondary)" }}>
-                    {ANALYST_RESULT.headers.map((h) => (
-                      <th key={h} className="px-3 py-2 text-left font-semibold"
-                        style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {ANALYST_RESULT.rows.map((row, ri) => (
-                    <tr key={ri} style={{ borderBottom: ri < ANALYST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className="px-3 py-2" style={{ color: "var(--text-primary)" }}>
-                          {cell}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DataTableArtifact artifact={mockArtifact(ANALYST_ROWS, "SQL_QUERY")} />
         )}
 
-        {/* ── Clustering: segment cards ──────────────────────────────────── */}
+        {/* ── Clustering: real SegmentationArtifact ─────────────────────── */}
         {category === "clustering" && (
-          <div className="flex flex-col gap-3">
-
-            {/* Context received from upstream analyst */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-1.5">
-                <Search size={11} style={{ color: "#2891DA" }} />
-                <p className="text-xs font-semibold" style={{ color: "#2891DA" }}>
-                  Context from Analyst — {ANALYST_RESULT.rows.length} rows ingested
-                </p>
-              </div>
-              <div className="rounded-lg overflow-hidden" style={{ border: "1px solid #2891DA30" }}>
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr style={{ background: "#2891DA08" }}>
-                      {ANALYST_RESULT.headers.map((h) => (
-                        <th key={h} className="px-2 py-1.5 text-left font-semibold"
-                          style={{ color: "var(--text-muted)", borderBottom: "1px solid #2891DA20" }}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ANALYST_RESULT.rows.map((row, ri) => (
-                      <tr key={ri} style={{ borderBottom: ri < ANALYST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
-                        {row.map((cell, ci) => (
-                          <td key={ci} className="px-2 py-1.5" style={{ color: "var(--text-primary)" }}>
-                            {cell}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-              {CLUSTER_RESULT.segments.length} Segments Identified
-            </p>
-            {CLUSTER_RESULT.segments.map((seg, i) => (
-              <div key={i} className="rounded-xl p-3 flex flex-col gap-1.5"
-                style={{ background: `${seg.color}08`, border: `1px solid ${seg.color}30` }}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold" style={{ color: seg.color }}>
-                    Segment {String.fromCharCode(65 + i)}: {seg.name}
-                  </span>
-                  <span className="text-xs px-1.5 py-0.5 rounded-full"
-                    style={{ background: `${seg.color}18`, color: seg.color, fontWeight: 600 }}>
-                    {seg.plans.length} plans
-                  </span>
-                </div>
-                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                  {seg.plans.join(" · ")}
-                </p>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {seg.characteristics}
-                </p>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  Confidence — {seg.confidence}
-                </p>
-              </div>
-            ))}
-          </div>
+          <SegmentationArtifact artifact={mockArtifact(CLUSTER_DATA, "CLUSTER_GMM")} />
         )}
 
-        {/* ── Forecast: metrics + table ──────────────────────────────────── */}
+        {/* ── Forecast: real ForecastArtifact ───────────────────────────── */}
         {category === "forecast" && (
-          <div className="flex flex-col gap-3">
-            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-              Model Metrics
-            </p>
-            <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-              {FORECAST_RESULT.metrics.map((m, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2"
-                  style={{ borderBottom: i < FORECAST_RESULT.metrics.length - 1 ? "1px solid var(--border)" : "none",
-                           background: i % 2 === 0 ? "var(--bg-secondary)" : "#ffffff" }}>
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>{m.label}</span>
-                  <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>{m.value}</span>
-                </div>
-              ))}
-            </div>
+          <ForecastArtifact artifact={mockArtifact(FORECAST_DATA, "FORECAST_PROPHET")} />
+        )}
 
-            <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-              Forecast — next 6 months
-            </p>
-            <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr style={{ background: "var(--bg-secondary)" }}>
-                    {["Month", "Forecast", "Lower", "Upper"].map((h) => (
-                      <th key={h} className="px-3 py-2 text-left font-semibold"
-                        style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {FORECAST_RESULT.rows.map((r, ri) => (
-                    <tr key={ri} style={{ borderBottom: ri < FORECAST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
-                      <td className="px-3 py-2" style={{ color: "var(--text-muted)" }}>{r.month}</td>
-                      <td className="px-3 py-2 font-semibold" style={{ color: accentColor }}>{r.forecast}</td>
-                      <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{r.lower}</td>
-                      <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{r.upper}</td>
+        {/* kept for TypeScript — accentColor used below in combined output */}
+        {false && (
+          <span style={{ color: accentColor }}>{/* placeholder */}</span>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-          </div>
-        )}
-
         {/* ── Output: combined collapsible report ───────────────────────── */}
         {category === "output" && (
           <CombinedOutputReport runNodes={runNodes} />
@@ -885,7 +791,7 @@ function NodeResultSection({ node }: { node: RunNodeMeta }) {
             </>
           )}
 
-          {(category === "mtree" || category === "causal" || category === "other") && (
+          {(category === "mtree" || category === "causal") && (
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               Analysis complete. Results contributed to the combined output.
             </p>
@@ -925,6 +831,31 @@ function CombinedOutputReport({ runNodes }: { runNodes: RunNodeMeta[] }) {
       ))}
     </div>
   );
+}
+
+// ── Changelog diff helper ────────────────────────────────────────────────────
+function generateChangelog(prev: AgentStep[], next: AgentStep[], verNum: number): string {
+  const prevMap = new Map(prev.map((s) => [`${s.type}:${s.label}`, s]));
+  const nextMap = new Map(next.map((s) => [`${s.type}:${s.label}`, s]));
+
+  const added   = next.filter((s) => !prevMap.has(`${s.type}:${s.label}`));
+  const removed = prev.filter((s) => !nextMap.has(`${s.type}:${s.label}`));
+  const changed = next.filter((s) => {
+    const p = prevMap.get(`${s.type}:${s.label}`);
+    return p && p.prompt !== s.prompt;
+  });
+
+  const lines: string[] = [];
+  if (added.length)   lines.push(`+ Added: ${added.map((s) => s.label).join(", ")}`);
+  if (removed.length) lines.push(`− Removed: ${removed.map((s) => s.label).join(", ")}`);
+  if (changed.length) lines.push(`~ Updated: ${changed.map((s) => s.label).join(", ")}`);
+  if (!lines.length)  lines.push("No structural changes");
+
+  const ts = new Date().toLocaleString(undefined, {
+    month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit",
+  });
+  return `── v${verNum} · ${ts} ──\n${lines.join("\n")}`;
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -1014,19 +945,32 @@ export default function WorkflowEditPage() {
     if (!wf) return;
 
     // Capture live canvas state so the persisted agentChain stays current
-    const liveChain = canvasRef.current?.getAgentChain() ?? wf.agentChain;
-    const updated = { ...wf, name: workflowName, notes, agentChain: liveChain };
+    const liveChain  = canvasRef.current?.getAgentChain() ?? wf.agentChain;
+    const prevVersion = versions[versions.length - 1];
+    const nextVerNum  = (prevVersion?.versionNumber ?? 0) + 1;
+
+    // Auto-generate a changelog entry by diffing against the previous version
+    let updatedNotes = notes;
+    if (prevVersion) {
+      const entry = generateChangelog(prevVersion.agentChain, liveChain, nextVerNum);
+      updatedNotes = updatedNotes.trim()
+        ? `${entry}\n\n${updatedNotes}`
+        : entry;
+      setNotes(updatedNotes);
+    }
+
+    const updated = { ...wf, name: workflowName, notes: updatedNotes, agentChain: liveChain };
     saveWorkflow(updated);
 
-    const newVer = appendVersion(workflowId, workflowName, liveChain);
+    const newVer = appendVersion(workflowId, workflowName, liveChain, updatedNotes);
     setVersions((prev) => {
       const next = [...prev, newVer];
-      setSelectedVersionIdx(next.length - 1); // jump to latest
+      setSelectedVersionIdx(next.length - 1);
       return next;
     });
     setIsDirty(false);
     setModifiedLabel(fmtDate(new Date().toISOString()));
-  }, [workflowId, workflowName, notes]);
+  }, [workflowId, workflowName, notes, versions]);
 
   // ── Delete a version ────────────────────────────────────────────────────
   const handleDeleteVersion = useCallback((versionId: string) => {
