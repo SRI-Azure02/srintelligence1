@@ -3,11 +3,11 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Clock } from "lucide-react";
+import { useState, useEffect } from "react";
 import ChatInput from "@/components/chat/ChatInput";
 import { useChatHistory } from "@/components/providers/ChatHistoryProvider";
 
-function getGreeting() {
-  const hour = new Date().getHours();
+function getGreeting(hour: number): string {
   if (hour < 12) return "Good morning";
   if (hour < 17) return "Good afternoon";
   return "Good evening";
@@ -21,6 +21,12 @@ export default function ChatHome() {
   const router = useRouter();
   const { threads } = useChatHistory();
   const recentThreads = threads.slice(0, 5);
+
+  // null until hydrated — prevents server/client mismatch on Vercel (server runs UTC)
+  const [greeting, setGreeting] = useState<string | null>(null);
+  useEffect(() => {
+    setGreeting(getGreeting(new Date().getHours()));
+  }, []);
 
   const handleSubmit = (query: string) => {
     const id = newThreadId();
@@ -42,8 +48,8 @@ export default function ChatHome() {
       <div className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
         {/* Greeting */}
         <div className="text-center">
-          <p className="text-2xl font-medium mb-1" style={{ color: "var(--text-primary)" }}>
-            {getGreeting()}
+          <p className="text-2xl font-medium mb-1" style={{ color: "var(--text-primary)", minHeight: "1.75rem" }}>
+            {greeting}
           </p>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
             What would you like to analyze?
