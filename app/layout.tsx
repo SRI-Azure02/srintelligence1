@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import TopBar from "@/components/layout/TopBar";
 import ResizableLayout from "@/components/layout/ResizableLayout";
-import RunProgressToast from "@/components/layout/RunProgressToast";
 
 export const metadata: Metadata = {
   title: "SRIntelligence™",
@@ -19,7 +18,6 @@ export default function RootLayout({
       <body className="h-full flex flex-col overflow-hidden" style={{ background: "var(--bg-primary)" }}>
         <TopBar />
         <ResizableLayout>{children}</ResizableLayout>
-        <RunProgressToast />
         <footer
           className="shrink-0 flex items-center justify-center px-4"
           style={{
