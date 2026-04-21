@@ -22,7 +22,7 @@ import "@xyflow/react/dist/style.css";
 import AgentNode from "./nodes/AgentNode";
 import OutputNode from "./nodes/OutputNode";
 import type { RunNodeStatus } from "./nodes/AgentNode";
-import { X, Undo2, Redo2, Plus, TrendingUp, Layers, GitFork, GitPullRequestArrow, ChevronDown, Search, FileText, LayoutGrid, Activity } from "lucide-react";
+import { X, Undo2, Redo2, Plus, TrendingUp, Layers, GitFork, GitPullRequestArrow, ChevronDown, Search, FileText, LayoutGrid } from "lucide-react";
 import type { StoredArtifact } from "@/lib/run-store";
 import { agentPalette } from "@/lib/mock-data";
 
@@ -1107,19 +1107,19 @@ const WorkflowCanvas = forwardRef<WorkflowCanvasHandle, {
                 </div>
                 <div className="flex flex-wrap justify-center gap-2">
                   {[
-                    { type: "sri-analyst",    label: "Analyst",    Icon: Search,     color: "#2891DA" },
-                    { type: "sri-forecast",   label: "Forecast",   Icon: TrendingUp, color: "#34c98b" },
-                    { type: "sri-clustering", label: "Clustering", Icon: Layers,     color: "#a78bfa" },
-                    { type: "sri-mtree",      label: "MTree",      Icon: GitFork,    color: "#fb923c" },
-                    { type: "sri-causal",     label: "Causal",     Icon: Activity,   color: "#8b5cf6" },
+                    { type: "sri-analyst",    label: "Analyst",    Icon: Search,               color: "#2891DA" },
+                    { type: "sri-forecast",   label: "Forecast",   Icon: TrendingUp,           color: "#34c98b" },
+                    { type: "sri-clustering", label: "Clustering", Icon: Layers,               color: "#a78bfa" },
+                    { type: "sri-mtree",      label: "MTree",      Icon: GitFork,              color: "#fb923c" },
+                    { type: "sri-causal",     label: "Causal",     Icon: GitPullRequestArrow,  color: "#8b5cf6" },
                   ].map(({ type, label, Icon, color }) => (
                     <button
                       key={type}
                       onClick={() => addNode(type, label)}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
-                      style={{ background: `${color}12`, border: `1px solid ${color}30`, color }}
+                      style={{ background: `${color}12`, border: `1px solid ${color}30`, color: "#111111" }}
                     >
-                      <Icon size={13} strokeWidth={1.6} />
+                      <Icon size={13} strokeWidth={1.6} style={{ color: "#111111" }} />
                       {label}
                     </button>
                   ))}
