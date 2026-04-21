@@ -33,8 +33,11 @@ export default function OutputNode({ id, data, selected }: NodeProps) {
       {/* Run status badge */}
       {runStatus === "running" && (
         <div className="absolute flex items-center justify-center rounded-full"
-          style={{ top: -8, right: -8, width: 20, height: 20, background: "#fff", border: `2px solid ${color}`, boxShadow: "0 1px 4px rgba(0,0,0,0.15)", zIndex: 10 }}>
-          <Loader size={10} className="animate-spin" style={{ color }} />
+          style={{ top: -8, right: -8, width: 20, height: 20, background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.15)", zIndex: 10 }}>
+          <span className="animate-spin" style={{
+            display: "block", width: 16, height: 16, borderRadius: "50%",
+            border: "2.5px solid", borderColor: `${color}28`, borderTopColor: color,
+          }} />
         </div>
       )}
       {runStatus === "done" && (

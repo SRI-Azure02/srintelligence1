@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Play, Square, Edit2, Share2, Calendar, RefreshCw, Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Zap, Copy, Check, Trash2, Loader2 } from "lucide-react";
+import { Play, Square, Edit2, Share2, Calendar, RefreshCw, Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Zap, Copy, Check, Trash2 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { WorkflowCard as WorkflowCardType } from "@/lib/types";
 import { useActiveRun } from "@/lib/use-run-store";
@@ -102,10 +102,13 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
             </h3>
             {isRunning ? (
               <span
-                className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full shrink-0"
+                className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full shrink-0"
                 style={{ background: "rgba(40,145,218,0.08)", color: "#2891DA", border: "1px solid rgba(40,145,218,0.25)" }}
               >
-                <Loader2 size={10} className="animate-spin" />
+                <span className="animate-spin shrink-0" style={{
+                  display: "block", width: 10, height: 10, borderRadius: "50%",
+                  border: "2px solid rgba(40,145,218,0.2)", borderTopColor: "#2891DA",
+                }} />
                 Running…
               </span>
             ) : (
