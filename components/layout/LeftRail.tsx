@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   MessageSquare, Search, Zap, Plus, Pencil, Trash2, Check,
-  PanelLeftClose, PanelLeftOpen, ChevronDown, ChevronRight,
+  PanelLeftClose, PanelLeftOpen, ChevronDown, ChevronRight, Milestone,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useState } from "react";
 import { useChatHistory } from "@/components/providers/ChatHistoryProvider";
+import RoadmapModal from "@/components/layout/RoadmapModal";
 
 interface LeftRailProps {
   collapsed?: boolean;
@@ -57,6 +58,7 @@ export default function LeftRail({ collapsed = false, narrow = false, onToggleCo
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [showRoadmap, setShowRoadmap] = useState(false);
 
   const navItems = [
     { href: "/chat", label: "Chat", icon: MessageSquare },
@@ -230,8 +232,29 @@ export default function LeftRail({ collapsed = false, narrow = false, onToggleCo
       {/* Spacer when no thread list */}
       {(!isChat || collapsed) && <div className="flex-1" />}
 
-      {/* Collapse toggle — same layout as nav items, left-aligned */}
-      <div style={{ borderTop: "1px solid var(--border)" }} className="px-2 py-2">
+      {/* Roadmap + Collapse toggle */}
+      <div style={{ borderTop: "1px solid var(--border)" }} className="px-2 py-2 flex flex-col gap-1">
+        {/* Roadmap button */}
+        <button
+          onClick={() => setShowRoadmap(true)}
+          className={navItemClass}
+          style={{ color: "var(--text-muted)", width: "100%" }}
+          title="Product Roadmap"
+        >
+          <Milestone size={22} />
+          {!collapsed && (
+            <span style={{
+              fontSize: narrow ? "10px" : "12px",
+              fontWeight: 500,
+              letterSpacing: "0.01em",
+              whiteSpace: "nowrap",
+            }}>
+              {narrow ? "" : "Roadmap"}
+            </span>
+          )}
+        </button>
+
+        {/* Collapse toggle */}
         <button
           onClick={onToggleCollapse}
           className={navItemClass}
@@ -251,6 +274,8 @@ export default function LeftRail({ collapsed = false, narrow = false, onToggleCo
           )}
         </button>
       </div>
+
+      {showRoadmap && <RoadmapModal onClose={() => setShowRoadmap(false)} />}
     </aside>
   );
 }
