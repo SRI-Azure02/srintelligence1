@@ -19,7 +19,7 @@ export default function OutputNode({ id, data, selected }: NodeProps) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        width: 200,
+        width: 210,
         background: "#ffffff",
         border: `2px solid ${selected ? color : runStatus === "running" ? color : "var(--border)"}`,
         boxShadow: selected
@@ -81,13 +81,15 @@ export default function OutputNode({ id, data, selected }: NodeProps) {
           </button>
         )}
       </div>
-      <div className="px-3 py-2.5">
-        {runStatus === "running" ? (
-          <div className="flex flex-col gap-1.5">
+      {/* Body — same fixed height as AgentNode */}
+      <div className="relative px-3 py-2.5" style={{ height: 80, overflow: "hidden" }}>
+        {runStatus === "running" && (
+          <div className="flex flex-col gap-1.5 mt-1">
             <div className="rounded animate-pulse h-2" style={{ background: "rgba(100,116,139,0.2)", width: "80%" }} />
             <div className="rounded animate-pulse h-2" style={{ background: "rgba(100,116,139,0.12)", width: "55%" }} />
           </div>
-        ) : (
+        )}
+        {runStatus !== "running" && runStatus !== "done" && (
           <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
             Render: Table + Forecast Charts per Segment
           </p>
@@ -95,11 +97,25 @@ export default function OutputNode({ id, data, selected }: NodeProps) {
         {runStatus === "done" && (
           <button
             onClick={(e) => { e.stopPropagation(); onViewReport?.(); }}
-            className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-90 active:scale-95"
-            style={{ background: "rgba(100,116,139,0.12)", color, border: "1px solid rgba(100,116,139,0.3)", cursor: "pointer" }}
+            className="absolute inset-0 flex items-center justify-center gap-3 transition-colors"
+            style={{ background: `${color}07`, cursor: "pointer" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${color}12`; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = `${color}07`; }}
           >
-            <BarChart2 size={11} />
-            View Report
+            <span style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 32, height: 32, borderRadius: 9, flexShrink: 0,
+              background: `${color}22`, border: `1px solid ${color}35`,
+            }}>
+              <BarChart2 size={14} style={{ color }} />
+            </span>
+            <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color, letterSpacing: "0.01em" }}>View Results</span>
+              <span style={{ fontSize: 10, color: "var(--text-muted)" }}>Open combined report</span>
+            </span>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ color, opacity: 0.5, flexShrink: 0 }}>
+              <path d="M2.5 6.5h8M7 3.5l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </button>
         )}
       </div>
