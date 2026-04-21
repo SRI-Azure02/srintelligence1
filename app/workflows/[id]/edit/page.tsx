@@ -17,7 +17,8 @@ import type { WorkflowVersion } from "@/lib/workflow-versions";
 import type { AgentStep } from "@/lib/types";
 import { Node, Edge } from "@xyflow/react";
 import { runStore } from "@/lib/run-store";
-import { useActiveRun } from "@/lib/use-run-store";
+import type { RunNodeMeta } from "@/lib/run-store";
+import { useActiveRun, useLastRun } from "@/lib/use-run-store";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type ScheduleType = "daily" | "weekly" | "monthly";
@@ -516,12 +517,14 @@ function RunReportPanel({
   agentType,
   label,
   runNodeStates,
+  runNodes,
   onClose,
 }: {
   nodeId:        string;
   agentType:     string;
   label:         string;
   runNodeStates: Record<string, RunNodeStatus>;
+  runNodes:      RunNodeMeta[];
   onClose:       () => void;
 }) {
   const status   = runNodeStates[nodeId] ?? "done";
@@ -744,35 +747,182 @@ function RunReportPanel({
           </div>
         )}
 
-        {/* ── Output / other: summary card ──────────────────────────────── */}
-        {(category === "output" || category === "mtree" || category === "causal") && (
+        {/* ── Output: combined collapsible report ───────────────────────── */}
+        {category === "output" && (
+          <CombinedOutputReport runNodes={runNodes} />
+        )}
+
+        {/* ── mtree / causal: placeholder summary ───────────────────────── */}
+        {(category === "mtree" || category === "causal") && (
           <div className="flex flex-col gap-2">
             <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-              Run Summary
+              Analysis Complete
             </p>
-            <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-              {[
-                { label: "Nodes executed",    value: "5 / 5" },
-                { label: "Total duration",    value: "12.4s" },
-                { label: "Rows processed",    value: "35,544" },
-                { label: "Segments found",    value: "2" },
-                { label: "Forecast horizon",  value: "12 months" },
-                { label: "Overall status",    value: "Success" },
-              ].map((m, i, arr) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2"
-                  style={{ borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none",
-                           background: i % 2 === 0 ? "var(--bg-secondary)" : "#ffffff" }}>
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>{m.label}</span>
-                  <span className="text-xs font-semibold" style={{ color: m.label === "Overall status" ? "#22c55e" : "var(--text-primary)" }}>
-                    {m.value}
-                  </span>
-                </div>
-              ))}
+            <div className="rounded-xl px-3 py-3 text-xs" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+              Results are included in the combined output report.
             </div>
           </div>
         )}
 
       </div>
+    </div>
+  );
+}
+
+// ── Combined output report (collapsible sections per node) ───────────────────
+function NodeResultSection({ node }: { node: RunNodeMeta }) {
+  const [open, setOpen] = useState(true);
+  const category = getAgentCategory(node.agentType);
+
+  const ICON_MAP: Record<string, React.ReactNode> = {
+    analyst:    <Search    size={12} style={{ color: "#2891DA" }} />,
+    forecast:   <TrendingUp size={12} style={{ color: "#34c98b" }} />,
+    clustering: <Layers    size={12} style={{ color: "#a78bfa" }} />,
+    mtree:      <BarChart2 size={12} style={{ color: "#fb923c" }} />,
+    causal:     <BarChart2 size={12} style={{ color: "#8b5cf6" }} />,
+    output:     <FileText  size={12} style={{ color: "#64748b" }} />,
+  };
+  const COLOR_MAP: Record<string, string> = {
+    analyst: "#2891DA", forecast: "#34c98b", clustering: "#a78bfa",
+    mtree: "#fb923c", causal: "#8b5cf6", output: "#64748b",
+  };
+  const color = COLOR_MAP[category] ?? "var(--accent)";
+
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+      {/* Section header */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 transition-colors hover:bg-black/3"
+        style={{ background: `${color}08`, borderBottom: open ? "1px solid var(--border)" : "none" }}
+      >
+        {ICON_MAP[category]}
+        <span className="text-xs font-semibold flex-1 text-left" style={{ color }}>
+          {node.label}
+        </span>
+        <CheckCircle size={12} style={{ color: "#22c55e", flexShrink: 0 }} />
+        <ChevronDown size={12} style={{ color: "var(--text-muted)", transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+      </button>
+
+      {/* Section body */}
+      {open && (
+        <div className="p-3 flex flex-col gap-3">
+          {category === "analyst" && (
+            <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr style={{ background: "var(--bg-secondary)" }}>
+                    {ANALYST_RESULT.headers.map((h) => (
+                      <th key={h} className="px-2 py-1.5 text-left font-semibold"
+                        style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ANALYST_RESULT.rows.map((row, ri) => (
+                    <tr key={ri} style={{ borderBottom: ri < ANALYST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="px-2 py-1.5" style={{ color: "var(--text-primary)" }}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {category === "clustering" && CLUSTER_RESULT.segments.map((seg, i) => (
+            <div key={i} className="rounded-lg p-2.5 flex flex-col gap-1"
+              style={{ background: `${seg.color}08`, border: `1px solid ${seg.color}30` }}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold" style={{ color: seg.color }}>
+                  Segment {String.fromCharCode(65 + i)}: {seg.name}
+                </span>
+                <span className="text-xs px-1.5 py-0.5 rounded-full"
+                  style={{ background: `${seg.color}18`, color: seg.color, fontWeight: 600 }}>
+                  {seg.plans.length} plans
+                </span>
+              </div>
+              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{seg.plans.join(" · ")}</p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{seg.characteristics}</p>
+            </div>
+          ))}
+
+          {category === "forecast" && (
+            <>
+              <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                {FORECAST_RESULT.metrics.map((m, i) => (
+                  <div key={i} className="flex items-center justify-between px-2 py-1.5"
+                    style={{ borderBottom: i < FORECAST_RESULT.metrics.length - 1 ? "1px solid var(--border)" : "none",
+                             background: i % 2 === 0 ? "var(--bg-secondary)" : "#ffffff" }}>
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>{m.label}</span>
+                    <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>{m.value}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr style={{ background: "var(--bg-secondary)" }}>
+                      {["Month", "Forecast", "Lower", "Upper"].map((h) => (
+                        <th key={h} className="px-2 py-1.5 text-left font-semibold"
+                          style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {FORECAST_RESULT.rows.map((r, ri) => (
+                      <tr key={ri} style={{ borderBottom: ri < FORECAST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
+                        <td className="px-2 py-1.5" style={{ color: "var(--text-muted)" }}>{r.month}</td>
+                        <td className="px-2 py-1.5 font-semibold" style={{ color }}>{r.forecast}</td>
+                        <td className="px-2 py-1.5" style={{ color: "var(--text-secondary)" }}>{r.lower}</td>
+                        <td className="px-2 py-1.5" style={{ color: "var(--text-secondary)" }}>{r.upper}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {(category === "mtree" || category === "causal" || category === "other") && (
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Analysis complete. Results contributed to the combined output.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CombinedOutputReport({ runNodes }: { runNodes: RunNodeMeta[] }) {
+  const agentNodes = runNodes.filter(
+    (n) => n.id !== "output" && n.agentType !== "output" && n.agentType !== "outputNode"
+  );
+
+  if (agentNodes.length === 0) {
+    return (
+      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        No upstream results available. Run the workflow first.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+          Combined Report
+        </p>
+        <span className="text-xs px-1.5 py-0.5 rounded-full"
+          style={{ background: "rgba(34,197,94,0.1)", color: "#22c55e", fontWeight: 600 }}>
+          {agentNodes.length} nodes
+        </span>
+      </div>
+      {agentNodes.map((node) => (
+        <NodeResultSection key={node.id} node={node} />
+      ))}
     </div>
   );
 }
@@ -806,9 +956,14 @@ export default function WorkflowEditPage() {
   const [nameHovered,  setNameHovered]  = useState(false);
 
   // Run — backed by the global singleton so timers survive navigation
-  const activeRun   = useActiveRun(workflowId);
-  const isRunning   = !!activeRun;
-  const runNodeStates = (activeRun?.nodeStates ?? {}) as Record<string, RunNodeStatus>;
+  const activeRun     = useActiveRun(workflowId);
+  const lastRun       = useLastRun(workflowId);
+  const isRunning     = !!activeRun;
+  // After the run completes, fall back to lastRun so green checkmarks stay visible
+  const runNodeStates = (activeRun?.nodeStates ?? lastRun?.nodeStates ?? {}) as Record<string, RunNodeStatus>;
+  // runNodes: prefer the live run's nodes, fall back to last completed run so
+  // the output report can access them even after the active run clears.
+  const runNodes: RunNodeMeta[] = activeRun?.nodes ?? lastRun?.nodes ?? [];
   const [reportNode, setReportNode] = useState<{ nodeId: string; agentType: string; label: string } | null>(null);
   const canvasRef = useRef<WorkflowCanvasHandle>(null);
 
@@ -1107,7 +1262,7 @@ export default function WorkflowEditPage() {
             initialEdges={isViewingPastVersion ? vEdges : initialEdges}
             startEmpty={!isViewingPastVersion && !initialNodes}
             toolbarOffset={396}
-            runNodeStates={isRunning || Object.keys(runNodeStates).length > 0 ? runNodeStates : undefined}
+            runNodeStates={Object.keys(runNodeStates).length > 0 ? runNodeStates : undefined}
             onViewReport={(nodeId, agentType, label) => setReportNode({ nodeId, agentType, label })}
           />
         )}
@@ -1119,6 +1274,7 @@ export default function WorkflowEditPage() {
             agentType={reportNode.agentType}
             label={reportNode.label}
             runNodeStates={runNodeStates}
+            runNodes={runNodes}
             onClose={() => setReportNode(null)}
           />
         )}

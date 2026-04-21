@@ -1,6 +1,9 @@
 /**
  * Module-level singleton that owns all workflow run timers.
  * Lives outside React so runs survive page navigation in the same browser tab.
+ *
+ * IMPORTANT: every mutation creates a NEW object and stores it back in the Map
+ * so that useSyncExternalStore can detect changes via reference equality.
  */
 
 export type NodeRunStatus = "idle" | "pending" | "running" | "done";
@@ -37,12 +40,14 @@ export interface RunNotification {
 type Listener = () => void;
 
 class RunStore {
-  private _activeRuns: Map<string, ActiveRun>     = new Map();
-  private _notifications: RunNotification[]        = [];
-  private _listeners:  Set<Listener>               = new Set();
-  private _timers:     Map<string, ReturnType<typeof setTimeout>[]> = new Map();
+  private _activeRuns:  Map<string, ActiveRun>     = new Map();
+  private _notifications: RunNotification[]         = [];
+  private _listeners:   Set<Listener>               = new Set();
+  private _timers:      Map<string, ReturnType<typeof setTimeout>[]> = new Map();
+  /** Last completed/aborted run per workflow — survives after activeRun clears */
+  private _lastRun:     Map<string, RunNotification> = new Map();
 
-  // ── Subscription (for useSyncExternalStore) ────────────────────────────────
+  // ── Subscription (for useSyncExternalStore) ──────────────────────────────
   subscribe = (listener: Listener): (() => void) => {
     this._listeners.add(listener);
     return () => this._listeners.delete(listener);
@@ -50,7 +55,7 @@ class RunStore {
 
   private _notify() { this._listeners.forEach((l) => l()); }
 
-  // ── Snapshots ──────────────────────────────────────────────────────────────
+  // ── Snapshots ─────────────────────────────────────────────────────────────
   getActiveRun   = (workflowId: string): ActiveRun | undefined =>
     this._activeRuns.get(workflowId);
 
@@ -62,7 +67,11 @@ class RunStore {
   unreadCount = (): number =>
     this._notifications.filter((n) => !n.read).length;
 
-  // ── Actions ────────────────────────────────────────────────────────────────
+  /** Returns the most recently completed/aborted run for a workflow. */
+  getLastRun = (workflowId: string): RunNotification | undefined =>
+    this._lastRun.get(workflowId);
+
+  // ── Actions ───────────────────────────────────────────────────────────────
   startRun(workflowId: string, workflowName: string, nodes: RunNodeMeta[]): void {
     // Cancel any existing run for this workflow
     this._clearTimers(workflowId);
@@ -78,13 +87,15 @@ class RunStore {
       workflowName,
       startedAt: Date.now(),
       nodes,
-      nodeStates: { ...initialStates },
+      nodeStates: initialStates,
     };
 
     this._activeRuns.set(workflowId, active);
     this._notify();
 
     // Sequential simulation — each node runs 0.8–1.8 s
+    // Each state update creates a NEW ActiveRun object so useSyncExternalStore
+    // detects the change via reference inequality.
     const timers: ReturnType<typeof setTimeout>[] = [];
     let elapsed = 0;
 
@@ -92,39 +103,45 @@ class RunStore {
       const duration = 800 + Math.random() * 1000;
       const { id } = node;
 
+      // → "running"
       timers.push(setTimeout(() => {
         const run = this._activeRuns.get(workflowId);
         if (!run) return;
-        run.nodeStates = { ...run.nodeStates, [id]: "running" };
+        this._activeRuns.set(workflowId, {
+          ...run,
+          nodeStates: { ...run.nodeStates, [id]: "running" },
+        });
         this._notify();
       }, elapsed));
 
+      // → "done"
       timers.push(setTimeout(() => {
         const run = this._activeRuns.get(workflowId);
         if (!run) return;
-        run.nodeStates = { ...run.nodeStates, [id]: "done" };
+        const newStates = { ...run.nodeStates, [id]: "done" };
+        this._activeRuns.set(workflowId, { ...run, nodeStates: newStates });
         this._notify();
 
         if (i === nodes.length - 1) {
           // All nodes done → move to notifications
-          const finalStates = { ...run.nodeStates };
+          const finishedRun = this._activeRuns.get(workflowId)!;
           this._activeRuns.delete(workflowId);
           this._timers.delete(workflowId);
-          this._notifications = [
-            {
-              id:           `notif-${Date.now()}`,
-              runId,
-              workflowId,
-              workflowName,
-              status:       "done",
-              startedAt:    run.startedAt,
-              completedAt:  Date.now(),
-              nodes,
-              nodeStates:   finalStates,
-              read:         false,
-            },
-            ...this._notifications,
-          ];
+
+          const notif: RunNotification = {
+            id:           `notif-${Date.now()}`,
+            runId,
+            workflowId,
+            workflowName,
+            status:       "done",
+            startedAt:    finishedRun.startedAt,
+            completedAt:  Date.now(),
+            nodes,
+            nodeStates:   finishedRun.nodeStates,
+            read:         false,
+          };
+          this._lastRun.set(workflowId, notif);
+          this._notifications = [notif, ...this._notifications];
           this._notify();
         }
       }, elapsed + duration));
@@ -140,27 +157,32 @@ class RunStore {
     const run = this._activeRuns.get(workflowId);
     if (!run) return;
     this._activeRuns.delete(workflowId);
-    this._notifications = [
-      {
-        id:          `notif-${Date.now()}`,
-        runId:       run.runId,
-        workflowId,
-        workflowName: run.workflowName,
-        status:      "aborted",
-        startedAt:   run.startedAt,
-        completedAt: Date.now(),
-        nodes:       run.nodes,
-        nodeStates:  run.nodeStates,
-        read:        false,
-      },
-      ...this._notifications,
-    ];
+
+    const notif: RunNotification = {
+      id:          `notif-${Date.now()}`,
+      runId:       run.runId,
+      workflowId,
+      workflowName: run.workflowName,
+      status:      "aborted",
+      startedAt:   run.startedAt,
+      completedAt: Date.now(),
+      nodes:       run.nodes,
+      nodeStates:  run.nodeStates,
+      read:        false,
+    };
+    this._lastRun.set(workflowId, notif);
+    this._notifications = [notif, ...this._notifications];
     this._notify();
   }
 
   markRead(notifId: string): void {
     const n = this._notifications.find((x) => x.id === notifId);
-    if (n && !n.read) { n.read = true; this._notify(); }
+    if (n && !n.read) {
+      this._notifications = this._notifications.map((x) =>
+        x.id === notifId ? { ...x, read: true } : x
+      );
+      this._notify();
+    }
   }
 
   markAllRead(): void {
