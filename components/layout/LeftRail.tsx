@@ -84,7 +84,7 @@ export default function LeftRail({ collapsed = false, narrow = false, onToggleCo
     .filter((g) => g.items.length > 0);
 
   // Shared nav item layout: always flex-row, icon + label
-  const navItemClass = `flex items-center rounded-lg transition-colors px-2 py-2.5 ${
+  const navItemClass = `flex items-center rounded-lg transition-colors hover:bg-black/5 px-2 py-2.5 ${
     collapsed || narrow ? "justify-center" : "gap-3"
   }`;
 
