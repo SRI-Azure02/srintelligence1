@@ -84,12 +84,12 @@ class RunStore {
     this._activeRuns.set(workflowId, active);
     this._notify();
 
-    // Sequential simulation — each node runs 1.5–3.5 s
+    // Sequential simulation — each node runs 0.8–1.8 s
     const timers: ReturnType<typeof setTimeout>[] = [];
     let elapsed = 0;
 
     nodes.forEach((node, i) => {
-      const duration = 1500 + Math.random() * 2000;
+      const duration = 800 + Math.random() * 1000;
       const { id } = node;
 
       timers.push(setTimeout(() => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   Save, Play, Trash2, Pencil, Check,
   StickyNote, ChevronDown, FastForward, Bookmark, Trash,
@@ -11,7 +11,7 @@ import {
 import WorkflowCanvas, { edgeDefaults } from "@/components/workflows/WorkflowCanvas";
 import type { WorkflowCanvasHandle } from "@/components/workflows/WorkflowCanvas";
 import type { RunNodeStatus } from "@/components/workflows/nodes/AgentNode";
-import { loadSavedWorkflows, saveWorkflow } from "@/lib/workflow-storage";
+import { loadSavedWorkflows, saveWorkflow, deleteWorkflow } from "@/lib/workflow-storage";
 import { loadVersions, appendVersion, deleteVersion, toggleBookmark } from "@/lib/workflow-versions";
 import type { WorkflowVersion } from "@/lib/workflow-versions";
 import type { AgentStep } from "@/lib/types";
@@ -591,7 +591,7 @@ function RunReportPanel({
             Execution complete
           </span>
           <span className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
-            {(1.5 + Math.random() * 2).toFixed(1)}s
+            {(0.8 + Math.random() * 1).toFixed(1)}s
           </span>
         </div>
 
@@ -631,7 +631,43 @@ function RunReportPanel({
 
         {/* ── Clustering: segment cards ──────────────────────────────────── */}
         {category === "clustering" && (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
+
+            {/* Context received from upstream analyst */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Search size={11} style={{ color: "#2891DA" }} />
+                <p className="text-xs font-semibold" style={{ color: "#2891DA" }}>
+                  Context from Analyst — {ANALYST_RESULT.rows.length} rows ingested
+                </p>
+              </div>
+              <div className="rounded-lg overflow-hidden" style={{ border: "1px solid #2891DA30" }}>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr style={{ background: "#2891DA08" }}>
+                      {ANALYST_RESULT.headers.map((h) => (
+                        <th key={h} className="px-2 py-1.5 text-left font-semibold"
+                          style={{ color: "var(--text-muted)", borderBottom: "1px solid #2891DA20" }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ANALYST_RESULT.rows.map((row, ri) => (
+                      <tr key={ri} style={{ borderBottom: ri < ANALYST_RESULT.rows.length - 1 ? "1px solid var(--border)" : "none" }}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className="px-2 py-1.5" style={{ color: "var(--text-primary)" }}>
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <p className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
               {CLUSTER_RESULT.segments.length} Segments Identified
             </p>
@@ -744,6 +780,7 @@ function RunReportPanel({
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function WorkflowEditPage() {
   const params     = useParams();
+  const router     = useRouter();
   const workflowId = params?.id as string | undefined;
 
   // Gate canvas render until client-side data is loaded
@@ -864,6 +901,15 @@ export default function WorkflowEditPage() {
     setIsDirty(true);
   }, [canvasVersion, versions.length]);
 
+
+  // ── Delete workflow ──────────────────────────────────────────────────────
+  const handleDelete = useCallback(() => {
+    if (!workflowId) return;
+    if (!window.confirm(`Delete "${workflowName}"? This cannot be undone.`)) return;
+    if (isRunning) runStore.abortRun(workflowId);
+    deleteWorkflow(workflowId);
+    router.replace("/workflows");
+  }, [workflowId, workflowName, isRunning, router]);
 
   // ── Run / Abort ───────────────────────────────────────────────────────────
   const handleRun = useCallback(() => {
@@ -1006,6 +1052,7 @@ export default function WorkflowEditPage() {
           {/* Delete — icon only */}
           <button
             title="Delete workflow"
+            onClick={handleDelete}
             className="flex items-center justify-center p-2 rounded-lg transition-colors hover:bg-red-50"
             style={{ color: "var(--danger)", border: "1px solid var(--border)" }}
           >
