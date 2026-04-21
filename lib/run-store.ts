@@ -277,11 +277,15 @@ class RunStore {
           try {
             const ev = JSON.parse(line.slice(6)) as {
               type:     string;
-              payload?: { artifacts?: StoredArtifact[] };
+              payload?: { result?: { artifacts?: StoredArtifact[] }; artifacts?: StoredArtifact[] };
             };
-            if (ev.type === "SYNTHESIS_COMPLETE" && ev.payload?.artifacts?.length) {
-              reader.cancel();
-              return ev.payload.artifacts[0];
+            if (ev.type === "SYNTHESIS_COMPLETE") {
+              // Server wraps the FormattedResponse inside payload.result
+              const artifacts = ev.payload?.result?.artifacts ?? ev.payload?.artifacts;
+              if (artifacts?.length) {
+                reader.cancel();
+                return artifacts[0];
+              }
             }
           } catch {
             // malformed JSON line — skip
