@@ -65,12 +65,14 @@ type Listener = () => void;
 const STORAGE_KEY = "sri_run_notifications";
 
 class RunStore {
-  private _activeRuns:      Map<string, ActiveRun>       = new Map();
-  private _notifications:   RunNotification[]            = [];
-  private _listeners:       Set<Listener>                = new Set();
-  private _abortControllers: Map<string, AbortController> = new Map();
+  private _activeRuns:         Map<string, ActiveRun>       = new Map();
+  /** Stable snapshot array — only rebuilt in _notify() so useSyncExternalStore never loops */
+  private _activeRunsSnapshot: ActiveRun[]                 = [];
+  private _notifications:      RunNotification[]            = [];
+  private _listeners:          Set<Listener>                = new Set();
+  private _abortControllers:   Map<string, AbortController> = new Map();
   /** Last completed/aborted run per workflow — survives after activeRun clears */
-  private _lastRun:         Map<string, RunNotification> = new Map();
+  private _lastRun:            Map<string, RunNotification> = new Map();
 
   constructor() {
     this._loadPersistedNotifications();
@@ -107,14 +109,17 @@ class RunStore {
     return () => this._listeners.delete(listener);
   };
 
-  private _notify() { this._listeners.forEach((l) => l()); }
+  private _notify() {
+    // Rebuild the snapshot once per mutation so getActiveRuns() returns a stable reference
+    this._activeRunsSnapshot = Array.from(this._activeRuns.values());
+    this._listeners.forEach((l) => l());
+  }
 
   // ── Snapshots ─────────────────────────────────────────────────────────────
   getActiveRun   = (workflowId: string): ActiveRun | undefined =>
     this._activeRuns.get(workflowId);
 
-  getActiveRuns  = (): ActiveRun[] =>
-    Array.from(this._activeRuns.values());
+  getActiveRuns  = (): ActiveRun[] => this._activeRunsSnapshot;
 
   getNotifications = (): RunNotification[] => this._notifications;
 
