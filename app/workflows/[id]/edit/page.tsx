@@ -862,6 +862,19 @@ export default function WorkflowEditPage() {
     : undefined;
   const [reportNode, setReportNode] = useState<{ nodeId: string; agentType: string; label: string } | null>(null);
   const canvasRef = useRef<WorkflowCanvasHandle>(null);
+  const wasRunningRef = useRef(false);
+
+  // Auto-open results panel when a run finishes
+  useEffect(() => {
+    const justCompleted = wasRunningRef.current && !isRunning;
+    wasRunningRef.current = isRunning;
+    if (justCompleted && runNodes.length > 0 && !reportNode) {
+      // Prefer the output node; fall back to last node in the chain
+      const outputNode = runNodes.find((n) => n.agentType === "output") ?? runNodes[runNodes.length - 1];
+      setReportNode({ nodeId: outputNode.id, agentType: outputNode.agentType, label: outputNode.label });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning]);
 
   const fmtDate = (iso?: string) =>
     iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : null;

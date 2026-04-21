@@ -9,23 +9,36 @@ import {
   Activity, Cpu, FileText, Search,
   List, SortAsc, ChevronDown, Check,
   Play, Copy, Share2, Square, Edit2,
+  ExternalLink,
 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import WorkflowCardComponent from "@/components/workflows/WorkflowCard";
 import { WorkflowCard } from "@/lib/types";
 import { loadSavedWorkflows, deleteWorkflow } from "@/lib/workflow-storage";
 import { runStore } from "@/lib/run-store";
-import { useActiveRun } from "@/lib/use-run-store";
+import { useActiveRun, useLastRun } from "@/lib/use-run-store";
 import ShareModal from "@/components/workflows/ShareModal";
 
-// ── Agent icon / color maps ───────────────────────────────────────────────────
+// ── Agent icon map — keep in sync with WorkflowCard.tsx AGENT_ICONS ──────────
 const TMPL_ICONS: Record<string, LucideIcon> = {
-  "sri-analyst": Search, "sri-forecast": TrendingUp, "sri-clustering": Layers,
-  "sri-mtree": GitFork, "sri-causal": GitPullRequestArrow,
-  prophet: TrendingUp, sarima: Activity, "holt-winters": TrendingUp,
-  xgboost: Cpu, hybrid: TrendingUp, "auto-forecast": TrendingUp,
-  gmm: Layers, kmeans: Layers, kmedoids: Layers, dbscan: Layers,
-  hierarchical: Layers, "auto-cluster": Layers, output: FileText,
+  "sri-analyst":    Search,
+  "sri-forecast":   TrendingUp,
+  "sri-clustering": Layers,
+  "sri-mtree":      GitFork,
+  "sri-causal":     GitPullRequestArrow,
+  prophet:          TrendingUp,
+  sarima:           Activity,
+  "holt-winters":   TrendingUp,
+  xgboost:          Cpu,
+  hybrid:           TrendingUp,
+  "auto-forecast":  TrendingUp,
+  gmm:              Layers,
+  kmeans:           Layers,
+  kmedoids:         Layers,
+  dbscan:           Layers,
+  hierarchical:     Layers,
+  "auto-cluster":   Layers,
+  output:           FileText,
 };
 
 function TemplateChain({ chain }: { chain: WorkflowCard["agentChain"] }) {
@@ -135,10 +148,12 @@ function WorkflowListRow({
   onDuplicate?: (id: string) => void;
   onDelete?: (id: string) => void;
 }) {
+  const router = useRouter();
   const [showShare,  setShowShare]  = useState(false);
   const [duplicated, setDuplicated] = useState(false);
 
   const activeRun = useActiveRun(workflow.id);
+  const lastRun   = useLastRun(workflow.id);
   const isRunning = !!activeRun;
 
   const handleRun = () => {
@@ -168,7 +183,7 @@ function WorkflowListRow({
       <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
         style={{ background: "rgba(40,145,218,0.04)", border: "1px solid rgba(40,145,218,0.22)" }}>
 
-        {/* Node status icons */}
+        {/* Node status icons — same 32px size as card view */}
         <div className="flex items-center gap-1 shrink-0">
           {activeRun.nodes.map((node) => {
             const state = activeRun.nodeStates[node.id] ?? "pending";
@@ -177,14 +192,14 @@ function WorkflowListRow({
             const isActive  = state === "running";
             const isPending = state === "pending";
             return (
-              <span key={node.id} className="relative flex items-center justify-center w-7 h-7 rounded"
+              <span key={node.id} className="relative flex items-center justify-center w-8 h-8 rounded-lg"
                 style={{
                   background: isDone   ? "rgba(34,197,94,0.12)"
                     : isActive ? "rgba(40,145,218,0.12)"
                     : "var(--bg-tertiary)",
                 }}
                 title={node.label}>
-                <Icon size={13} strokeWidth={1.6} style={{
+                <Icon size={15} strokeWidth={1.6} style={{
                   color:   isDone   ? "#22c55e"
                     : isActive ? "#2891DA"
                     : "var(--text-muted)",
@@ -192,15 +207,15 @@ function WorkflowListRow({
                 }} />
                 {/* done badge */}
                 {isDone && (
-                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full flex items-center justify-center"
+                  <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
                     style={{ background: "#22c55e" }}>
-                    <Check size={7} strokeWidth={3} style={{ color: "#fff" }} />
+                    <Check size={8} strokeWidth={3} style={{ color: "#fff" }} />
                   </span>
                 )}
                 {/* running spinner */}
                 {isActive && (
-                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3">
-                    <span className="animate-spin block w-3 h-3 rounded-full"
+                  <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5">
+                    <span className="animate-spin block w-3.5 h-3.5 rounded-full"
                       style={{ border: "1.5px solid rgba(40,145,218,0.2)", borderTopColor: "#2891DA" }} />
                   </span>
                 )}
@@ -241,7 +256,66 @@ function WorkflowListRow({
     );
   }
 
+  // ── Results-ready state (run just completed) ───────────────────────────────
+  const hasResults = lastRun && lastRun.status === "done" && Object.keys(lastRun.nodeArtifacts ?? {}).length > 0;
+  if (hasResults && !isRunning) {
+    const nodes = lastRun!.nodes;
+    return (
+      <>
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+          style={{ background: "rgba(34,197,94,0.04)", border: "1px solid rgba(34,197,94,0.2)" }}>
+
+          {/* Completed node icons */}
+          <div className="flex items-center gap-1 shrink-0">
+            {nodes.map((node) => {
+              const Icon = TMPL_ICONS[node.agentType] ?? TrendingUp;
+              return (
+                <span key={node.id} className="relative flex items-center justify-center w-8 h-8 rounded-lg"
+                  style={{ background: "rgba(34,197,94,0.1)" }} title={node.label}>
+                  <Icon size={15} strokeWidth={1.6} style={{ color: "#22c55e" }} />
+                  <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
+                    style={{ background: "#22c55e" }}>
+                    <Check size={8} strokeWidth={3} style={{ color: "#fff" }} />
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+
+          {/* Name + status */}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold truncate" style={{ color: "var(--text-primary)" }}
+              title={workflow.name}>{workflow.name}</p>
+            <p className="text-xs" style={{ color: "#22c55e" }}>Run complete · results ready</p>
+          </div>
+
+          {/* View results */}
+          <button
+            onClick={() => router.push(`/workflows/${workflow.id}/edit`)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90 shrink-0"
+            style={{ background: "#22c55e", color: "white" }}>
+            <ExternalLink size={12} />
+            View Results
+          </button>
+
+          {/* Dismiss / revert to normal row */}
+          <button onClick={() => runStore.dismiss(lastRun!.id)}
+            className="p-1.5 rounded-lg transition-colors hover:bg-black/5 shrink-0"
+            style={{ color: "var(--text-muted)" }} title="Dismiss">
+            <X size={13} />
+          </button>
+        </div>
+
+        {showShare && (
+          <ShareModal workflowId={workflow.id} workflowName={workflow.name} onClose={() => setShowShare(false)} />
+        )}
+      </>
+    );
+  }
+
   // ── Normal (idle) state ────────────────────────────────────────────────────
+  const idleLastResults = lastRun?.status === "done" && Object.keys(lastRun.nodeArtifacts ?? {}).length > 0;
+
   return (
     <>
       <div className="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors hover:bg-black/3"
@@ -281,6 +355,17 @@ function WorkflowListRow({
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          {/* View Last Results */}
+          {idleLastResults && (
+            <Link href={`/workflows/${workflow.id}/edit`}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
+              style={{ background: "rgba(34,197,94,0.1)", color: "#16a34a", whiteSpace: "nowrap" }}
+              title="View last run results">
+              <ExternalLink size={11} />
+              Last Results
+            </Link>
+          )}
+
           {/* Run */}
           <button
             onClick={handleRun}
@@ -596,6 +681,39 @@ export default function WorkflowsPage() {
             {filtered.map((wf) => (
               <WorkflowListRow key={wf.id} workflow={wf} onDuplicate={handleDuplicate} onDelete={handleDelete} />
             ))}
+
+            {/* New Workflow row — mirrors the grid card */}
+            {!query && (
+              <div className="rounded-xl px-4 py-3 flex flex-col gap-2.5"
+                style={{ border: "1.5px dashed var(--border)" }}>
+                <div className="flex items-center gap-2">
+                  <Plus size={14} style={{ color: "var(--text-muted)" }} />
+                  <span className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>New Workflow</span>
+                  <span className="text-xs ml-1" style={{ color: "var(--text-muted)" }}>— start from:</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Link href="/chat"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors hover:bg-black/5"
+                    style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
+                    <Pin size={12} />
+                    Pin current chat conversation
+                  </Link>
+                  <Link href="/workflows/new/edit"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors hover:bg-black/5"
+                    style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
+                    <LayoutGrid size={12} />
+                    Build from scratch (visual canvas)
+                  </Link>
+                  <button
+                    onClick={() => setShowTemplate(true)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors hover:bg-black/5 text-left"
+                    style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
+                    <Wrench size={12} />
+                    Use a template
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -5,13 +5,14 @@ import Link from "next/link";
 import {
   Play, Square, Edit2, Share2, Calendar, RefreshCw,
   Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow,
-  FileText, Zap, Copy, Check, Trash2,
+  FileText, Zap, Copy, Check, Trash2, Search, ExternalLink,
 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { WorkflowCard as WorkflowCardType } from "@/lib/types";
 import { useActiveRun, useLastRun } from "@/lib/use-run-store";
 import { runStore } from "@/lib/run-store";
 import ShareModal from "@/components/workflows/ShareModal";
+import { useRouter } from "next/navigation";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -26,15 +27,23 @@ function fmtRelativeTime(ms: number): string {
 // ── Agent icon maps ───────────────────────────────────────────────────────────
 
 const AGENT_ICONS: Record<string, LucideIcon> = {
+  "sri-analyst":    Search,
   "sri-forecast":   TrendingUp,
   "sri-clustering": Layers,
   "sri-mtree":      GitFork,
   "sri-causal":     GitPullRequestArrow,
   prophet:          TrendingUp,
   sarima:           Activity,
+  "holt-winters":   TrendingUp,
   xgboost:          Cpu,
+  hybrid:           TrendingUp,
+  "auto-forecast":  TrendingUp,
   gmm:              Layers,
   kmeans:           Layers,
+  kmedoids:         Layers,
+  dbscan:           Layers,
+  hierarchical:     Layers,
+  "auto-cluster":   Layers,
   output:           FileText,
 };
 
@@ -71,6 +80,7 @@ interface WorkflowCardProps {
 }
 
 export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete }: WorkflowCardProps) {
+  const router = useRouter();
   const [showShare,  setShowShare]  = useState(false);
   const [duplicated, setDuplicated] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -229,17 +239,31 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
           <>
             <ChainBadge chain={workflow.agentChain} />
 
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
-                {workflow.schedule === "auto" ? (
-                  <><RefreshCw size={11} />Auto — {workflow.scheduleLabel}</>
-                ) : (
-                  <><Calendar size={11} />Manual-Update</>
-                )}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {workflow.schedule === "auto" ? (
+                    <><RefreshCw size={11} />Auto — {workflow.scheduleLabel}</>
+                  ) : (
+                    <><Calendar size={11} />Manual-Update</>
+                  )}
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Last run: {displayLastRun} · #{displayRunCount} runs
+                </p>
               </div>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Last run: {displayLastRun} · #{displayRunCount} runs
-              </p>
+
+              {/* View Last Results — only when last run has real artifacts */}
+              {lastRun?.status === "done" && Object.keys(lastRun.nodeArtifacts ?? {}).length > 0 && (
+                <button
+                  onClick={() => router.push(`/workflows/${workflow.id}/edit`)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-80 shrink-0"
+                  style={{ background: "rgba(34,197,94,0.1)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.2)" }}
+                  title="View last run results">
+                  <ExternalLink size={11} />
+                  Last Results
+                </button>
+              )}
             </div>
           </>
         )}
