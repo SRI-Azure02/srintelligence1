@@ -131,6 +131,7 @@ export default function DataExplorePage() {
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   // Load persisted custom names from localStorage
@@ -231,6 +232,39 @@ export default function DataExplorePage() {
           c.type.toLowerCase().includes(q),
       )
     : activeTable?.columns ?? [];
+
+  // ── Keyboard shortcuts (after filteredTables is in scope) ───────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag    = document.activeElement?.tagName;
+      const active = document.activeElement as HTMLElement | null;
+      const inField = tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable;
+
+      if (e.key === "/" && !inField) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      if (e.key === "Escape") {
+        searchInputRef.current?.blur();
+        return;
+      }
+      if (inField) return;
+
+      // ↑ / ↓ — navigate table list using current filtered list
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const currentIdx = filteredTables.findIndex((t) => t.id === selectedTable);
+        const nextIdx = e.key === "ArrowDown"
+          ? Math.min(currentIdx + 1, filteredTables.length - 1)
+          : Math.max(currentIdx - 1, 0);
+        const next = filteredTables[nextIdx];
+        if (next) setSelectedTable(next.id);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [filteredTables, selectedTable]);
 
   const filteredRules = q
     ? businessRules.filter(
@@ -341,10 +375,11 @@ export default function DataExplorePage() {
         >
           <Search size={15} style={{ color: "var(--text-muted)" }} />
           <input
+            ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search tables, columns, business rules..."
+            placeholder='Search tables, columns, business rules… ("/" to focus)'
             className="flex-1 bg-transparent outline-none text-sm"
             style={{ color: "var(--text-primary)" }}
           />

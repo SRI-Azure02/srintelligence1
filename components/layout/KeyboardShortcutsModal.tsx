@@ -1,11 +1,12 @@
 "use client";
 
-import { X, Keyboard } from "lucide-react";
+import { useState } from "react";
+import { X, Keyboard, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Shortcut {
-  keys: string[][];  // each inner array is one key combo; multiple = alternatives
+  keys: string[][];
   description: string;
 }
 
@@ -16,6 +17,7 @@ const GLOBAL: Shortcut[] = [
   { keys: [["G", "C"]], description: "Go to Chat" },
   { keys: [["G", "W"]], description: "Go to My Workflows" },
   { keys: [["G", "D"]], description: "Go to Data Explore" },
+  { keys: [["Esc"]], description: "Close any open panel or modal" },
 ];
 
 const CHAT: Shortcut[] = [
@@ -46,15 +48,15 @@ const CANVAS: Shortcut[] = [
   { keys: [["Esc"]], description: "Close panel / deselect node" },
 ];
 
-const PAGE_SECTIONS: Record<string, { label: string; shortcuts: Shortcut[] }> = {
-  chat:      { label: "Chat",             shortcuts: CHAT },
-  workflows: { label: "My Workflows",     shortcuts: WORKFLOWS },
-  canvas:    { label: "Workflow Canvas",  shortcuts: CANVAS },
-};
+const DATA_EXPLORE: Shortcut[] = [
+  { keys: [["/"]], description: "Focus table search" },
+  { keys: [["Esc"]], description: "Clear search / blur" },
+  { keys: [["↑"], ["↓"]], description: "Navigate table list" },
+  { keys: [["Enter"]], description: "Select focused table" },
+];
 
 // ── Shared sub-components ─────────────────────────────────────────────────────
 
-/** Renders one or two key-combo alternatives for a shortcut. */
 function KeyCombo({ combo }: { combo: string[] }) {
   return (
     <span className="flex items-center gap-0.5">
@@ -80,8 +82,10 @@ function KeyCombo({ combo }: { combo: string[] }) {
 
 function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5"
-      style={{ borderBottom: "1px solid var(--border)" }}>
+    <div
+      className="flex items-center justify-between gap-3 py-1.5"
+      style={{ borderBottom: "1px solid var(--border)" }}
+    >
       <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
         {shortcut.description}
       </span>
@@ -91,7 +95,6 @@ function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
             {i > 0 && (
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>or</span>
             )}
-            {/* For G → C style sequences, render with "then" between keys */}
             {combo.length === 1 ? (
               <KeyCombo combo={[combo[0]]} />
             ) : (
@@ -113,38 +116,99 @@ function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
   );
 }
 
+// ── Collapsible section ───────────────────────────────────────────────────────
+
 function Section({
   title,
   shortcuts,
-  accent,
+  accent = false,
+  defaultOpen = false,
+  nested = false,
+  children,
 }: {
   title: string;
   shortcuts: Shortcut[];
   accent?: boolean;
+  defaultOpen?: boolean;
+  nested?: boolean;
+  children?: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
+
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        <p
-          className="text-xs font-semibold uppercase tracking-widest"
-          style={{ color: accent ? "var(--accent)" : "var(--text-muted)", letterSpacing: "0.09em" }}
-        >
-          {title}
-        </p>
-        {accent && (
+    <div
+      style={{
+        borderRadius: nested ? 6 : 8,
+        border: `1px solid ${accent && open ? "rgba(40,145,218,0.3)" : "var(--border)"}`,
+        overflow: "hidden",
+        marginLeft: nested ? 0 : undefined,
+      }}
+    >
+      {/* Header */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between transition-colors hover:bg-black/4"
+        style={{
+          padding: nested ? "7px 10px" : "9px 12px",
+          background: accent && open
+            ? "rgba(40,145,218,0.07)"
+            : "var(--bg-secondary)",
+          textAlign: "left",
+        }}
+      >
+        <div className="flex items-center gap-2 min-w-0">
           <span
-            className="text-xs px-1.5 py-0.5 rounded-full font-medium"
-            style={{ background: "rgba(40,145,218,0.1)", color: "var(--accent)" }}
+            className="text-xs font-semibold uppercase tracking-widest shrink-0"
+            style={{
+              color: accent ? "var(--accent)" : "var(--text-muted)",
+              letterSpacing: "0.09em",
+              fontSize: nested ? "10px" : undefined,
+            }}
           >
-            current page
+            {title}
           </span>
-        )}
-      </div>
-      <div>
-        {shortcuts.map((s, i) => (
-          <ShortcutRow key={i} shortcut={s} />
-        ))}
-      </div>
+          {accent && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0"
+              style={{ background: "rgba(40,145,218,0.12)", color: "var(--accent)" }}
+            >
+              current page
+            </span>
+          )}
+          {!open && (
+            <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
+              {shortcuts.length + (children ? 1 : 0)} shortcut{shortcuts.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+        <ChevronDown
+          size={nested ? 11 : 13}
+          style={{
+            color: "var(--text-muted)",
+            transform: open ? "rotate(180deg)" : "none",
+            transition: "transform 0.18s ease",
+            flexShrink: 0,
+          }}
+        />
+      </button>
+
+      {/* Body */}
+      {open && (
+        <div
+          className="px-3"
+          style={{ borderTop: `1px solid ${accent ? "rgba(40,145,218,0.15)" : "var(--border)"}` }}
+        >
+          {shortcuts.map((s, i) => (
+            <ShortcutRow key={i} shortcut={s} />
+          ))}
+          {/* Nested children (e.g. Canvas inside Workflows) */}
+          {children && (
+            <div className="py-2">
+              {children}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -153,17 +217,10 @@ function Section({
 export default function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
   const pathname = usePathname() ?? "";
 
-  // Determine current page context
-  const contextKey = pathname.includes("/edit")
-    ? "canvas"
-    : pathname === "/workflows"
-    ? "workflows"
-    : pathname.startsWith("/chat")
-    ? "chat"
-    : null;
-
-  const currentSection = contextKey ? PAGE_SECTIONS[contextKey] : null;
-  const otherSections  = Object.entries(PAGE_SECTIONS).filter(([k]) => k !== contextKey);
+  const isChat        = pathname.startsWith("/chat");
+  const isWorkflows   = pathname === "/workflows";
+  const isCanvas      = pathname.includes("/edit");
+  const isDataExplore = pathname.startsWith("/data-explore");
 
   return (
     <div
@@ -203,25 +260,43 @@ export default function KeyboardShortcutsModal({ onClose }: { onClose: () => voi
           </div>
         </div>
 
-        {/* Body */}
-        <div className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-5">
+        {/* Body — fixed order: Global → Chat → Workflows+Canvas → Data Explore */}
+        <div className="overflow-y-auto flex-1 px-4 py-3 flex flex-col gap-2">
 
-          {/* Current page — shown first, highlighted */}
-          {currentSection && (
+          {/* 1. Global — always first, always expanded */}
+          <Section title="Global" shortcuts={GLOBAL} defaultOpen />
+
+          {/* 2. Chat */}
+          <Section
+            title="Chat"
+            shortcuts={CHAT}
+            accent={isChat}
+            defaultOpen={isChat}
+          />
+
+          {/* 3. Workflows — expanded if on workflows or canvas; Canvas nested inside */}
+          <Section
+            title="Workflows"
+            shortcuts={WORKFLOWS}
+            accent={isWorkflows}
+            defaultOpen={isWorkflows || isCanvas}
+          >
             <Section
-              title={currentSection.label}
-              shortcuts={currentSection.shortcuts}
-              accent
+              title="Canvas"
+              shortcuts={CANVAS}
+              accent={isCanvas}
+              defaultOpen={isCanvas}
+              nested
             />
-          )}
+          </Section>
 
-          {/* Global shortcuts */}
-          <Section title="Global" shortcuts={GLOBAL} />
-
-          {/* Other pages */}
-          {otherSections.map(([, section]) => (
-            <Section key={section.label} title={section.label} shortcuts={section.shortcuts} />
-          ))}
+          {/* 4. Data Explore */}
+          <Section
+            title="Data Explore"
+            shortcuts={DATA_EXPLORE}
+            accent={isDataExplore}
+            defaultOpen={isDataExplore}
+          />
         </div>
 
         {/* Footer */}
@@ -230,10 +305,13 @@ export default function KeyboardShortcutsModal({ onClose }: { onClose: () => voi
           style={{ borderTop: "1px solid var(--border)", background: "var(--bg-secondary)" }}
         >
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Shortcuts marked <kbd className="px-1 rounded text-xs font-mono"
-              style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)" }}>⌘</kbd> use{" "}
+            Shortcuts marked{" "}
             <kbd className="px-1 rounded text-xs font-mono"
-              style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)" }}>Ctrl</kbd> on Windows
+              style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)" }}>⌘</kbd>{" "}
+            use{" "}
+            <kbd className="px-1 rounded text-xs font-mono"
+              style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)" }}>Ctrl</kbd>{" "}
+            on Windows
           </p>
           <button
             onClick={onClose}
