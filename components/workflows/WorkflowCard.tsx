@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Play, Edit2, Share2, Calendar, RefreshCw, Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Zap, Copy, Check, Trash2 } from "lucide-react";
+import { Play, Square, Edit2, Share2, Calendar, RefreshCw, Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow, FileText, Zap, Copy, Check, Trash2, Loader2 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { WorkflowCard as WorkflowCardType } from "@/lib/types";
+import { useActiveRun } from "@/lib/use-run-store";
+import { runStore } from "@/lib/run-store";
 
 const AGENT_ICONS: Record<string, LucideIcon> = {
   "sri-forecast":   TrendingUp,
@@ -66,6 +68,8 @@ interface WorkflowCardProps {
 export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete }: WorkflowCardProps) {
   const [shared, setShared] = useState(false);
   const [duplicated, setDuplicated] = useState(false);
+  const activeRun = useActiveRun(workflow.id);
+  const isRunning = !!activeRun;
 
   const handleShare = () => {
     const url = `${window.location.origin}/workflows/${workflow.id}/edit`;
@@ -96,12 +100,22 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
             <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
               {workflow.name}
             </h3>
-            <span
-              className="text-xs px-2 py-0.5 rounded-full shrink-0"
-              style={{ background: "rgba(5,150,105,0.08)", color: "var(--success)", border: "1px solid rgba(5,150,105,0.2)" }}
-            >
-              Success
-            </span>
+            {isRunning ? (
+              <span
+                className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full shrink-0"
+                style={{ background: "rgba(40,145,218,0.08)", color: "#2891DA", border: "1px solid rgba(40,145,218,0.25)" }}
+              >
+                <Loader2 size={10} className="animate-spin" />
+                Running…
+              </span>
+            ) : (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                style={{ background: "rgba(5,150,105,0.08)", color: "var(--success)", border: "1px solid rgba(5,150,105,0.2)" }}
+              >
+                Success
+              </span>
+            )}
           </div>
 
           {/* Description */}
@@ -131,16 +145,28 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
       {/* Actions */}
       <div className="flex items-stretch gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
 
-        {/* Left group: Run Now (tall) + Edit/Delete stacked */}
+        {/* Left group: Run Now / Abort (tall) + Edit/Delete stacked */}
         <div className="flex gap-2">
-          <Link
-            href={`/workflows/${workflow.id}/run`}
-            className="flex flex-col items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
-            style={{ background: "#2891DA", color: "white", width: 90, minHeight: 72 }}
-          >
-            <Play size={15} fill="white" />
-            Run Now
-          </Link>
+          {isRunning ? (
+            <button
+              onClick={() => runStore.abortRun(workflow.id)}
+              className="flex flex-col items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
+              style={{ background: "#DC2626", color: "white", width: 90, minHeight: 72 }}
+              title="Abort running workflow"
+            >
+              <Square size={15} fill="white" />
+              Abort
+            </button>
+          ) : (
+            <Link
+              href={`/workflows/${workflow.id}/edit`}
+              className="flex flex-col items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
+              style={{ background: "#2891DA", color: "white", width: 90, minHeight: 72 }}
+            >
+              <Play size={15} fill="white" />
+              Run Now
+            </Link>
+          )}
 
           <div className="flex flex-col gap-2">
             <Link
