@@ -156,6 +156,91 @@ function WorkflowListRow({
     setTimeout(() => setDuplicated(false), 1500);
   };
 
+  // ── Running state ──────────────────────────────────────────────────────────
+  if (isRunning && activeRun) {
+    const doneCount    = activeRun.nodes.filter((n) => activeRun.nodeStates[n.id] === "done").length;
+    const totalCount   = activeRun.nodes.length;
+    const currentNode  = activeRun.nodes.find((n) => activeRun.nodeStates[n.id] === "running");
+    const pct          = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+        style={{ background: "rgba(40,145,218,0.04)", border: "1px solid rgba(40,145,218,0.22)" }}>
+
+        {/* Node status icons */}
+        <div className="flex items-center gap-1 shrink-0">
+          {activeRun.nodes.map((node) => {
+            const state = activeRun.nodeStates[node.id] ?? "pending";
+            const Icon  = TMPL_ICONS[node.agentType] ?? TrendingUp;
+            const isDone    = state === "done";
+            const isActive  = state === "running";
+            const isPending = state === "pending";
+            return (
+              <span key={node.id} className="relative flex items-center justify-center w-7 h-7 rounded"
+                style={{
+                  background: isDone   ? "rgba(34,197,94,0.12)"
+                    : isActive ? "rgba(40,145,218,0.12)"
+                    : "var(--bg-tertiary)",
+                }}
+                title={node.label}>
+                <Icon size={13} strokeWidth={1.6} style={{
+                  color:   isDone   ? "#22c55e"
+                    : isActive ? "#2891DA"
+                    : "var(--text-muted)",
+                  opacity: isPending ? 0.35 : 1,
+                }} />
+                {/* done badge */}
+                {isDone && (
+                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full flex items-center justify-center"
+                    style={{ background: "#22c55e" }}>
+                    <Check size={7} strokeWidth={3} style={{ color: "#fff" }} />
+                  </span>
+                )}
+                {/* running spinner */}
+                {isActive && (
+                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3">
+                    <span className="animate-spin block w-3 h-3 rounded-full"
+                      style={{ border: "1.5px solid rgba(40,145,218,0.2)", borderTopColor: "#2891DA" }} />
+                  </span>
+                )}
+              </span>
+            );
+          })}
+        </div>
+
+        {/* Workflow name + current step */}
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold truncate" style={{ color: "var(--text-primary)" }}
+            title={workflow.name}>
+            {workflow.name}
+          </p>
+          <p className="text-xs truncate" style={{ color: "#2891DA" }}>
+            {currentNode ? `Running: ${currentNode.label}` : "Finishing up…"}
+          </p>
+        </div>
+
+        {/* Progress bar + counter */}
+        <div className="flex items-center gap-2 shrink-0" style={{ minWidth: 120 }}>
+          <div className="flex-1 rounded-full overflow-hidden" style={{ height: 4, background: "rgba(40,145,218,0.12)", minWidth: 80 }}>
+            <div className="h-full rounded-full transition-all duration-300"
+              style={{ width: `${pct}%`, background: "#2891DA" }} />
+          </div>
+          <span className="text-xs tabular-nums shrink-0" style={{ color: "var(--text-muted)" }}>
+            {doneCount}/{totalCount}
+          </span>
+        </div>
+
+        {/* Abort */}
+        <button onClick={() => runStore.abortRun(workflow.id)}
+          className="p-1.5 rounded-lg transition-colors hover:bg-red-50 shrink-0"
+          style={{ color: "#DC2626" }} title="Abort run">
+          <Square size={14} />
+        </button>
+      </div>
+    );
+  }
+
+  // ── Normal (idle) state ────────────────────────────────────────────────────
   return (
     <>
       <div className="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors hover:bg-black/3"
@@ -195,22 +280,13 @@ function WorkflowListRow({
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* Run / Abort */}
-          {isRunning ? (
-            <button
-              onClick={() => runStore.abortRun(workflow.id)}
-              className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
-              style={{ color: "#DC2626" }} title="Abort run">
-              <Square size={14} />
-            </button>
-          ) : (
-            <button
-              onClick={handleRun}
-              className="p-1.5 rounded-lg transition-colors hover:bg-blue-50"
-              style={{ color: "#2891DA" }} title="Run workflow">
-              <Play size={14} />
-            </button>
-          )}
+          {/* Run */}
+          <button
+            onClick={handleRun}
+            className="p-1.5 rounded-lg transition-colors hover:bg-blue-50"
+            style={{ color: "#2891DA" }} title="Run workflow">
+            <Play size={14} />
+          </button>
 
           {/* Duplicate */}
           <button
@@ -229,7 +305,7 @@ function WorkflowListRow({
             <Share2 size={14} />
           </button>
 
-          {/* Open */}
+          {/* Open in canvas */}
           <Link href={`/workflows/${workflow.id}/edit`}
             className="p-1.5 rounded-lg transition-colors hover:bg-black/5"
             style={{ color: "var(--accent)" }} title="Open in canvas">
