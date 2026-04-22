@@ -22,6 +22,46 @@
 import type { AgentIntent } from '../../types/agent';
 
 // ---------------------------------------------------------------------------
+// Forecast horizon extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the user-requested forecast horizon (in weeks) from the message text.
+ * Recognises patterns like "4-week", "4 week", "next 4 weeks", "4 weeks out",
+ * "4-period", "one month" (→ 4), "quarter" (→ 13), etc.
+ * Returns the parsed value, clamped to [1, 52], or the default (13) when nothing
+ * is detected.
+ */
+export function parseForecastHorizon(message: string, defaultWeeks = 13): number {
+  const m = message.toLowerCase();
+
+  // Explicit numeric: "4 week", "4-week", "4 weeks", "next 4 weeks", "4-period"
+  const numericMatch = m.match(
+    /(?:next\s+)?(\d+)[- ]?(?:week|wk|period|step)s?(?:\s+forecast|\s+out|\s+ahead)?/,
+  );
+  if (numericMatch) {
+    const n = parseInt(numericMatch[1], 10);
+    if (n >= 1 && n <= 52) return n;
+  }
+
+  // Word-form numbers
+  const wordMap: Record<string, number> = {
+    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+    seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12,
+  };
+  for (const [word, val] of Object.entries(wordMap)) {
+    if (new RegExp(`(?:next\\s+)?${word}[- ]?(?:week|wk|period)s?`).test(m)) return val;
+  }
+
+  // Common shorthand
+  if (/\bquarter(?:ly)?\b/.test(m)) return 13;
+  if (/\bone[\s-]month\b/.test(m))  return 4;
+  if (/\btwo[\s-]month/.test(m))    return 8;
+
+  return defaultWeeks;
+}
+
+// ---------------------------------------------------------------------------
 // Route shapes
 // ---------------------------------------------------------------------------
 
@@ -278,6 +318,11 @@ export function enrichMessage(
     priorColumns?: string[];
     priorData?: Record<string, unknown>;
     nClusters?: number; // explicit cluster count override for cluster intents
+    /**
+     * Forecast horizon in weeks parsed from the user message.
+     * Used instead of the hardcoded default so the agent honours the user's request.
+     */
+    forecastHorizon?: number;
     /** Metadata from the most recent clustering run — used to inject cluster context for FORECAST. */
     clusterInfo?: {
       nClusters: number;
@@ -374,6 +419,9 @@ export function enrichMessage(
       // reference needed, which Cortex Analyst cannot resolve.
       // Strategy B (fallback): Surface cluster context only; agent will produce
       // a single aggregate forecast with a note about the clusters.
+      const horizon = opts.forecastHorizon ?? 13;
+      const horizonLabel = `${horizon}-week`;
+
       if (opts.clusterThresholds && Object.keys(opts.clusterThresholds).length >= 2) {
         const { clusterThresholds } = opts;
         const algorithm = opts.clusterInfo?.algorithm ?? 'clustering';
@@ -393,11 +441,14 @@ export function enrichMessage(
           `Use the metric filters below to split the cohort — do NOT reference CLUSTERING_RESULTS:\n\n` +
           `${clusterLines}\n\n` +
           `Apply the metric filter shown above when building the time-series SQL for each cluster.\n` +
-          `You MUST produce a SEPARATE 13-week forecast for EACH cluster.\n` +
-          `For EACH cluster output a section header "### Cluster <N> — <LABEL>" followed by:\n` +
-          `  1. A validation table: Week | Actual Claims | Predicted Claims | Error %\n` +
-          `  2. A forecast table:   Week | Predicted Claims | 80% CI Lower | 80% CI Upper\n` +
-          `Do NOT combine clusters into a single aggregate forecast.]`,
+          `You MUST produce a SEPARATE ${horizonLabel} forecast for EACH cluster.\n` +
+          `The forecast horizon is exactly ${horizon} future weeks.\n` +
+          `For EACH cluster output a section header exactly as: "### Cluster <N> — <LABEL>" followed by:\n` +
+          `  1. A validation table with columns: Week | Actual Claims | Predicted Claims | Error %\n` +
+          `  2. A forecast table with columns:   Week | Predicted Claims | 80% CI Lower | 80% CI Upper\n` +
+          `     The forecast table MUST contain exactly ${horizon} rows (one per future week).\n` +
+          `Do NOT combine clusters into a single aggregate forecast.\n` +
+          `Do NOT omit any cluster section.]`,
         );
       } else if (opts.clusterInfo) {
         // Fallback: no thresholds available — surface cluster context only
@@ -409,9 +460,16 @@ export function enrichMessage(
               .join('\n')
           : Array.from({ length: nClusters }, (_, i) => `  Cluster ${i}`).join('\n');
         parts.push(
-          `\n\n[Context: The cohort was previously segmented into ${nClusters} clusters via ${algorithm}:\n` +
-          `${summaryLines}\n` +
-          `Generate a separate 13-week forecast for each cluster where possible.]`,
+          `\n\n[CLUSTER FORECAST INSTRUCTION — REQUIRED:\n` +
+          `The cohort was previously segmented into ${nClusters} clusters via ${algorithm}:\n` +
+          `${summaryLines}\n\n` +
+          `You MUST produce a SEPARATE ${horizonLabel} forecast for EACH cluster listed above.\n` +
+          `The forecast horizon is exactly ${horizon} future weeks.\n` +
+          `For EACH cluster output a section header exactly as: "### Cluster <N> — <LABEL>" followed by:\n` +
+          `  1. A validation table with columns: Week | Actual Claims | Predicted Claims | Error %\n` +
+          `  2. A forecast table with columns:   Week | Predicted Claims | 80% CI Lower | 80% CI Upper\n` +
+          `     The forecast table MUST contain exactly ${horizon} rows (one per future week).\n` +
+          `Do NOT combine clusters into a single aggregate forecast.]`,
         );
       }
       break;

@@ -31,7 +31,7 @@ import { costEstimator } from '../guardrails/cost-estimator';
 import { lineageTracker } from '../lineage/lineage-tracker';
 import { analystAgent } from '../agents/analyst-agent';
 import { PipelineExecutor } from '../orchestrator/pipeline';
-import { AGENT_ROUTING_MAP, enrichMessage, extractNClusters } from '../agents/agent-mapping';
+import { AGENT_ROUTING_MAP, enrichMessage, extractNClusters, parseForecastHorizon } from '../agents/agent-mapping';
 import { callCortexAgent, SNOWFLAKE_ROLE } from '../snowflake/cortex-agent-api';
 import { callCortexAnalyst } from '../snowflake/analyst-api';
 import { normalizeCortexSQL, normalizeUserQuestion } from '../snowflake/sql-normalizer';
@@ -1352,6 +1352,11 @@ export class RouteDispatcher {
           clusterInfo: effectiveClusterInfo,
           clusterSummary,
           clusterThresholds,
+          // Parse horizon from the original user message so the agent honours
+          // requests like "4-week forecast" instead of always using 13 weeks.
+          forecastHorizon: isForecastIntent
+            ? parseForecastHorizon(message)
+            : undefined,
         });
         // Derive the intent family prefix (e.g. "CAUSAL", "FORECAST", "MTREE")
         // so buildAgentMessages can filter out unrelated assistant turns from
