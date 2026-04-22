@@ -271,6 +271,14 @@ export class PipelineExecutor {
       return analystAgent.execute(input);
     }
 
+    // CLUSTER intents — must go through RouteDispatcher so the cohort-scoping
+    // logic in dispatchCluster() fires.  Direct callCortexAgent() below bypasses
+    // the _prior_cohort CTE injection that scopes the clustering UDTF to the
+    // analyst cohort identified in the preceding pipeline step.
+    if (step.intent.startsWith('CLUSTER') && step.intent !== 'CLUSTER_COMPARE') {
+      return this.executeClusterViaDispatcher(step.intent, input.message);
+    }
+
     // PATH B — cortex_agent (named Snowflake agent)
     const startMs = Date.now();
     const cortexRef = route.cortexAgentName;
@@ -309,6 +317,86 @@ export class PipelineExecutor {
       success: true,
       artifact,
       durationMs: Date.now() - startMs,
+      retryCount: 0,
+    };
+  }
+
+  /**
+   * Route a CLUSTER step through RouteDispatcher.dispatchCluster() so the
+   * cohort-scoping logic (PATH 1A / 1A-SCOPED) fires correctly.
+   *
+   * PipelineExecutor.executeStep() would otherwise call callCortexAgent()
+   * directly for cortex_agent intents, which bypasses the _prior_cohort CTE
+   * injection.  RouteDispatcher.dispatch() has a special-case CLUSTER branch
+   * that checks context.getLastAnalystResult() and builds a cohort-scoped
+   * SELECT before calling the UDTF — ensuring the clustering step operates on
+   * exactly the cohort identified by the preceding analyst step.
+   *
+   * A dynamic import is used to break the static import cycle:
+   *   route-dispatcher.ts → PipelineExecutor (pipeline.ts)
+   *   pipeline.ts         → RouteDispatcher (route-dispatcher.ts)
+   */
+  private async executeClusterViaDispatcher(
+    intent: AgentIntent,
+    message: string,
+  ): Promise<AgentResult> {
+    // Snapshot existing CLUSTER*_latest keys so we can detect what the
+    // dispatcher adds — needed because the dispatcher re-classifies intent and
+    // may store the result under a slightly different CLUSTER variant key.
+    const beforeClusterKeys = new Set(
+      [...this.context.intermediateResults.keys()].filter(
+        (k) => k.startsWith('CLUSTER') && k.endsWith('_latest'),
+      ),
+    );
+
+    // Dynamic import avoids the static circular dependency.
+    const { RouteDispatcher } = await import('../router/route-dispatcher');
+    const dispatcher = new RouteDispatcher(this.context);
+
+    // Drain the dispatch generator.  The dispatcher stores the result in context
+    // via storeResult() before emitting SYNTHESIS_COMPLETE, so we can retrieve
+    // it below regardless of which CLUSTER* variant was classified.
+    try {
+      for await (const event of dispatcher.dispatch(message)) {
+        if (event.type === 'AGENT_ERROR' || event.type === 'ERROR') {
+          return {
+            success: false,
+            error: (event as { error?: string }).error ?? 'Cluster dispatch failed',
+            durationMs: 0,
+            retryCount: 0,
+          };
+        }
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        durationMs: 0,
+        retryCount: 0,
+      };
+    }
+
+    // Try the exact intent first (fast path — usually matches).
+    const direct = this.context.getResult(`${intent}_latest`);
+    if (direct?.success) return direct;
+
+    // Fallback: find any new CLUSTER*_latest entry added by the dispatcher
+    // (handles cases where intent classification picks a different variant).
+    for (const [key, result] of this.context.intermediateResults) {
+      if (
+        key.startsWith('CLUSTER') &&
+        key.endsWith('_latest') &&
+        !beforeClusterKeys.has(key) &&
+        result.success
+      ) {
+        return result;
+      }
+    }
+
+    return {
+      success: false,
+      error: `Cluster dispatch completed without storing a result for intent ${intent}`,
+      durationMs: 0,
       retryCount: 0,
     };
   }
