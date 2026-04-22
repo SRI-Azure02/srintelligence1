@@ -5,8 +5,10 @@ import { normalizeCortexSQL } from '@/src/lib/snowflake/sql-normalizer';
 const ACCOUNT   = process.env.SNOWFLAKE_ACCOUNT!;   // e.g. hj98757.us-east-1
 const PAT       = process.env.SNOWFLAKE_PAT!;
 const WAREHOUSE = process.env.SNOWFLAKE_WAREHOUSE!;
-const DATABASE  = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
-const SCHEMA    = process.env.SNOWFLAKE_SCHEMA    ?? 'PUBLIC';
+const DATABASE    = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
+// Strip any accidental DATABASE.SCHEMA prefix in the env var (e.g. "CORTEX_TESTING.ML" → "ML")
+const _SCHEMA_RAW = process.env.SNOWFLAKE_SCHEMA ?? 'PUBLIC';
+const SCHEMA      = _SCHEMA_RAW.includes('.') ? _SCHEMA_RAW.split('.').pop()! : _SCHEMA_RAW;
 const BASE_URL  = `https://${ACCOUNT}.snowflakecomputing.com`;
 
 const SEMANTIC_VIEW = `${DATABASE}.${SCHEMA}.CORTEX_TESTCASE`;

@@ -80,7 +80,12 @@ function rowToSemanticViewRef(row: Record<string, unknown>): SemanticViewRef {
 }
 
 const _SF_DB  = process.env.SNOWFLAKE_DATABASE  ?? 'CORTEX_TESTING';
-const _SF_SCH = process.env.SNOWFLAKE_SCHEMA    ?? 'PUBLIC';
+// Defensive: strip any "DATABASE." prefix that may have been accidentally included
+// in the SNOWFLAKE_SCHEMA env var (e.g. "CORTEX_TESTING.ML" → "ML").
+const _SF_SCH_RAW = process.env.SNOWFLAKE_SCHEMA ?? 'PUBLIC';
+const _SF_SCH = _SF_SCH_RAW.includes('.')
+  ? _SF_SCH_RAW.split('.').pop()!
+  : _SF_SCH_RAW;
 const _SF_NS  = `${_SF_DB}.${_SF_SCH}`;
 
 /** Hard-coded fallback when the registry table has not yet been created. */
