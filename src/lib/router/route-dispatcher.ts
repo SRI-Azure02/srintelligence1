@@ -589,9 +589,42 @@ function buildCohortScopedFeatureSQL(
     ctePrefix = `WITH _prior_cohort AS (\n${cleanSQL}\n)`;
   }
 
-  // _cohort_keys reads from _prior_cohort using the raw column name (cohortKey)
-  // so it works regardless of what alias Cortex Analyst used in the prior query.
-  // The RX_TABLE join uses the normalised rxKey which is guaranteed to exist.
+  // When cohortKey is an NPI variant (not a direct RX_TABLE FK column), NPI
+  // values (10-digit external identifiers) do NOT match physician_key integers.
+  // Translate via PHYSICIAN_REF: npi_number → physician_key before joining.
+  const needsNpiTranslation =
+    rxKey === 'physician_key' &&
+    !RX_TABLE_VALID_ENTITY_KEYS.has(cohortKey.toLowerCase()) &&
+    /npi/i.test(cohortKey);
+
+  if (needsNpiTranslation) {
+    console.log(`[CLUSTER] PATH 1A-SCOPED: NPI translation required — "${cohortKey}" → physician_key via PHYSICIAN_REF`);
+    const physicianRefFQN = `${DB_SCHEMA}.PHYSICIAN_REF`;
+    return [
+      ctePrefix,
+      `, _cohort_npi AS (`,
+      `  SELECT DISTINCT ${cohortKey}::VARCHAR AS _npi`,
+      `  FROM   _prior_cohort`,
+      `  WHERE  ${cohortKey} IS NOT NULL`,
+      `)`,
+      `, _cohort_keys AS (`,
+      `  SELECT DISTINCT pr.physician_key`,
+      `  FROM   ${physicianRefFQN} pr`,
+      `  INNER JOIN _cohort_npi cn ON pr.npi_number::VARCHAR = cn._npi`,
+      `)`,
+      `SELECT rx.physician_key::VARCHAR AS RECORD_ID,`,
+      `       OBJECT_CONSTRUCT(`,
+      `         ${features}`,
+      `       )::VARIANT AS FEATURES`,
+      `FROM   ${RX_TABLE_FQN} rx`,
+      `INNER JOIN _cohort_keys ck ON rx.physician_key = ck.physician_key`,
+      `GROUP  BY rx.physician_key`,
+      `HAVING COUNT(rx.claim_id) >= 1`,
+    ].join('\n');
+  }
+
+  // Standard path — cohortKey is a direct FK column on RX_TABLE (e.g. physician_key,
+  // patient_gid) so values match exactly between _prior_cohort and RX_TABLE.
   return [
     ctePrefix,
     `, _cohort_keys AS (`,
@@ -868,6 +901,7 @@ Strict rules:
   - OBJECT_CONSTRUCT keys must be NUMERIC aggregates (SUM/COUNT/AVG/etc.) cast to ::FLOAT
   - HAVING COUNT(*) >= 5 to exclude sparse records
   - Do NOT add a LIMIT clause — the clustering UDTF must receive all matching records
+  - When clustering physicians, RECORD_ID MUST use physician_key::VARCHAR — NEVER use npi_number, npi, physician_gid, or any other physician identifier as RECORD_ID
 ${featureRule}
   - ${nHint}`;
 }
@@ -1645,10 +1679,11 @@ export class RouteDispatcher {
       const rawIdCol = priorAnalyst.columns.find(c => ENTITY_ID_RE.test(c)) ?? priorAnalyst.columns[0];
 
       // Hard rule: always resolve to the canonical RX_TABLE column name.
-      // physician_gid (semantic view name) → physician_key (RX_TABLE column).
       // physician_key is the universal physician identifier present across all
-      // relevant tables (RX_TABLE, PHYSICIAN_REF, CLUSTERING_RESULTS, etc.) and
-      // its values match what the semantic view exposes as physician_gid.
+      // relevant tables (RX_TABLE, PHYSICIAN_REF, CLUSTERING_RESULTS, etc.).
+      // If Cortex Analyst emits any non-canonical alias (e.g. npi_number),
+      // normaliseEntityKey() maps it to physician_key, and buildCohortScopedFeatureSQL()
+      // will translate NPI values → physician_key integers via PHYSICIAN_REF.
       const idCol = normaliseEntityKey(rawIdCol);
       console.log(`[CLUSTER] cohortKey="${rawIdCol}" → rxKey="${idCol}"`);
 

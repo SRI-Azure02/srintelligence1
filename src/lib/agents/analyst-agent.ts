@@ -55,13 +55,13 @@ const DOWNSTREAM_HINTS: Partial<Record<AgentIntent, string>> = {
   FORECAST_COMPARE: 'Return time series data with a date column and a numeric metric column.',
   FORECAST_AUTO: 'Return time series data with a date column and a numeric metric column.',
   MTREE: 'Return segmented data with a segment or group column and numeric metrics (counts, shares, or amounts).',
-  CLUSTER: 'Return a physician-level summary. Include physician_key and numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
-  CLUSTER_GM: 'Return a physician-level summary. Include physician_key and numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
-  CLUSTER_DBSCAN: 'Return a physician-level summary. Include physician_key and numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
-  CLUSTER_HIERARCHICAL: 'Return a physician-level summary. Include physician_key and numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
-  CLUSTER_KMEANS: 'Return a physician-level summary. Include physician_key and numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
-  CLUSTER_KMEDOIDS: 'Return a physician-level summary. Include physician_key and numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
-  CLUSTER_COMPARE: 'Return a physician-level summary. Include physician_key and numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
+  CLUSTER: 'Return a physician-level summary. The FIRST column MUST be physician_key (the internal physician identifier) — do NOT use npi_number, npi, or physician_gid. Also include numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
+  CLUSTER_GM: 'Return a physician-level summary. The FIRST column MUST be physician_key (the internal physician identifier) — do NOT use npi_number, npi, or physician_gid. Also include numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
+  CLUSTER_DBSCAN: 'Return a physician-level summary. The FIRST column MUST be physician_key (the internal physician identifier) — do NOT use npi_number, npi, or physician_gid. Also include numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
+  CLUSTER_HIERARCHICAL: 'Return a physician-level summary. The FIRST column MUST be physician_key (the internal physician identifier) — do NOT use npi_number, npi, or physician_gid. Also include numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
+  CLUSTER_KMEANS: 'Return a physician-level summary. The FIRST column MUST be physician_key (the internal physician identifier) — do NOT use npi_number, npi, or physician_gid. Also include numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
+  CLUSTER_KMEDOIDS: 'Return a physician-level summary. The FIRST column MUST be physician_key (the internal physician identifier) — do NOT use npi_number, npi, or physician_gid. Also include numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
+  CLUSTER_COMPARE: 'Return a physician-level summary. The FIRST column MUST be physician_key (the internal physician identifier) — do NOT use npi_number, npi, or physician_gid. Also include numeric aggregations (claim counts, patient counts, drug counts, payment amounts).',
   CAUSAL_AUTO: 'Return longitudinal data with a period/date column, an outcome metric column, and at least one driver/feature column.',
   CAUSAL_CONTRIBUTION: 'Return longitudinal data with a period/date column, an outcome metric column, and at least one driver/feature column. Include a period label column distinguishing baseline from target periods.',
   CAUSAL_DRIVERS: 'Return panel data with an outcome metric column and multiple potential driver/feature columns.',
@@ -513,8 +513,9 @@ export class AnalystAgent {
 
     if (isClusterIntent) {
       return (
-        'Show me a physician-level summary with prescribing metrics: ' +
-        'physician_key, total dispensed claims, number of distinct drugs prescribed, ' +
+        'Show me a physician-level summary with prescribing metrics. ' +
+        'IMPORTANT: The physician identifier column MUST be physician_key — do NOT use npi_number, npi, or physician_gid. ' +
+        'Columns: physician_key, total dispensed claims, number of distinct drugs prescribed, ' +
         'number of distinct patients, average days supply, average patient out-of-pocket cost, ' +
         'average plan payment amount. Filter to dispensed claims only.'
       );

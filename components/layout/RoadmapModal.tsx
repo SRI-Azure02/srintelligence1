@@ -22,7 +22,7 @@ interface RoadmapSection {
   items: RoadmapItem[];
 }
 
-// ── Data — all items numbered 1–23, upcoming items merged into categories ─────
+// ── Data — all items numbered 1–24, upcoming items merged into categories ─────
 
 const SECTIONS: RoadmapSection[] = [
   {
@@ -74,6 +74,12 @@ const SECTIONS: RoadmapSection[] = [
         id: 6,
         title: "Autonomous Insight Discovery",
         description: "Scheduled background job scans key metrics weekly and surfaces anomalies unprompted — before you ask.",
+        priority: "diff",
+      },
+      {
+        id: 24,
+        title: "Competitive Intelligence & Market Research Triangulation",
+        description: "Ingest competitive intelligence reports and market research publications to triangulate insights against internal analytics — automatically surfacing where external sources confirm, contradict, or extend your internal findings.",
         priority: "diff",
       },
     ],

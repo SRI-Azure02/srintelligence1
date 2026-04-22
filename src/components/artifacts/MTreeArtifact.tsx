@@ -2,16 +2,7 @@
 
 import React, { useRef, useState } from 'react'
 import type { AgentArtifact } from '../../types/agent'
-import {
-  ComposedChart,
-  Bar,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-} from 'recharts'
+// recharts removed — waterfall now uses inline SVG for precise stair rendering
 
 // ---------------------------------------------------------------------------
 // Data interfaces
@@ -130,12 +121,20 @@ function parseMTreeNarrative(text: string): MTreeData {
   // ── Extract waterfall items ─────────────────────────────────────────────────
   const waterfall: WaterfallItem[] = []
 
-  // Primary: row-splitting parser for the 7-column table produced by the Cortex agent:
-  //   | ID | Segment Description | H1% | H2% | Seg Δpp | Weighted Contribution | Running% |
-  // e.g. | 1a | Specialty = OB/GYN | 39.41% | 40.99% | +1.58pp | +0.95pp | 36.29% |
+  // Track Running% values to derive baseline/current if text patterns don't match.
+  // 7-column table: | ID | Segment | H1% | H2% | Seg Δpp | Weighted Contribution | Running% |
+  // Running% after row n = baseline + Σ contributions[0..n], so:
+  //   baseline = Running%[0] − contribution[0]
+  //   current  = Running%[last]
+  let _tableBaseline: number | undefined
+  let _tableCurrent: number | undefined
+
   const wfSectionM = cleaned.match(/Waterfall\s+Attribution[^\n]*\n([\s\S]*?)(?=\n#{1,3}\s|$)/i)
   if (wfSectionM) {
     const tableBlock = wfSectionM[1]
+    let firstContrib: number | undefined
+    let firstRunning: number | undefined
+
     for (const line of tableBlock.split('\n')) {
       if (!line.includes('|')) continue
       const cols = line.split('|').map(c => c.trim().replace(/\*+/g, '').trim())
@@ -143,6 +142,7 @@ function parseMTreeNarrative(text: string): MTreeData {
       if (cols.length < 8) continue
       const segLabel = cols[2]
       const contribStr = cols[6]
+      const runningStr = cols[7]
       // Skip separator / header rows
       if (!segLabel || /^[-:\s]+$/.test(segLabel)) continue
       if (/segment|description|label|feature|driver/i.test(segLabel)) continue
@@ -152,7 +152,18 @@ function parseMTreeNarrative(text: string): MTreeData {
       const val = parseFloat(contribStr.replace(/[p%+\s]/gi, ''))
       if (!isNaN(val)) {
         waterfall.push({ segment: segLabel, contribution: val })
+        // Capture Running% for baseline/current derivation
+        const runningVal = parseFloat(runningStr.replace(/[p%+\s*]/gi, ''))
+        if (!isNaN(runningVal)) {
+          if (firstRunning === undefined) { firstRunning = runningVal; firstContrib = val }
+          _tableCurrent = runningVal
+        }
       }
+    }
+
+    // Derive baseline from first row: Running%[0] − contribution[0] = baseline
+    if (firstRunning !== undefined && firstContrib !== undefined) {
+      _tableBaseline = firstRunning - firstContrib
     }
   }
 
@@ -214,18 +225,30 @@ function parseMTreeNarrative(text: string): MTreeData {
   const changeM = cleaned.match(/([+\-]?\d+\.?\d*)\s*pp\s*(?:market\s+share|change|increase|decrease)/i)
   const change = changeM ? parseFloat(changeM[1]) : undefined
 
-  // Look for "from X% to Y%" or "Baseline: X%" / "Final: Y%" patterns
-  const fromToM = cleaned.match(/from\s+([\d.]+)%\s+to\s+([\d.]+)%/i)
-  const baseline = fromToM
+  // Look for "from X% to Y%", "Baseline: X%", "Final: Y%" — try several patterns.
+  const fromToM =
+    cleaned.match(/from\s+([\d.]+)%\s+to\s+([\d.]+)%/i) ??
+    cleaned.match(/([\d.]+)%\s+(?:in\s+H1|in\s+period\s+1|baseline)[^\n]*?to\s+([\d.]+)%/i)
+
+  const baselineText = fromToM
     ? parseFloat(fromToM[1])
     : cleaned.match(/[Bb]aseline[:\s]+([\d.]+)%/)?.[1]
       ? parseFloat(cleaned.match(/[Bb]aseline[:\s]+([\d.]+)%/)![1])
-      : undefined
-  const current = fromToM
+      : cleaned.match(/H1\s+(?:overall\s+)?(?:market\s+share|share)[:\s]+([\d.]+)%/i)?.[1]
+        ? parseFloat(cleaned.match(/H1\s+(?:overall\s+)?(?:market\s+share|share)[:\s]+([\d.]+)%/i)![1])
+        : undefined
+
+  const currentText = fromToM
     ? parseFloat(fromToM[2])
     : cleaned.match(/[Ff]inal[:\s]+([\d.]+)%/)?.[1]
       ? parseFloat(cleaned.match(/[Ff]inal[:\s]+([\d.]+)%/)![1])
-      : baseline != null && change != null ? baseline + change : undefined
+      : cleaned.match(/H2\s+(?:overall\s+)?(?:market\s+share|share)[:\s]+([\d.]+)%/i)?.[1]
+        ? parseFloat(cleaned.match(/H2\s+(?:overall\s+)?(?:market\s+share|share)[:\s]+([\d.]+)%/i)![1])
+        : baselineText != null && change != null ? baselineText + change : undefined
+
+  // Prefer text-pattern values; fall back to Running%-derived values from the table.
+  const baseline = baselineText ?? _tableBaseline
+  const current  = currentText  ?? _tableCurrent
 
   return { nodes, waterfall, insights, summary, change, baseline, current, title }
 }
@@ -355,7 +378,7 @@ function VisualDecisionTree({ nodes }: { nodes: TreeNode[] }) {
 
 const WATERFALL_POS  = '#6aaa84'  // muted green
 const WATERFALL_NEG  = '#c97a7a'  // muted red
-const WATERFALL_BASE = '#3b82f6'  // blue for total
+const WATERFALL_BASE = '#3b82f6'  // blue for total / baseline / final
 
 interface WaterfallChartProps {
   items: WaterfallItem[]
@@ -363,9 +386,23 @@ interface WaterfallChartProps {
   current?: number
 }
 
+// A single bar's data in the SVG waterfall.
+interface WFBar {
+  label: string
+  /** Bottom value of the bar (value-space, not pixels). */
+  yBot: number
+  /** Top value of the bar (value-space). */
+  yTop: number
+  isTotal: boolean
+  isNeg: boolean
+  /** Raw value for tooltip. */
+  raw: number
+}
+
 function WaterfallChart({ items, baseline, current }: WaterfallChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(0)
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; bar: WFBar } | null>(null)
 
   React.useEffect(() => {
     const el = containerRef.current
@@ -383,113 +420,185 @@ function WaterfallChart({ items, baseline, current }: WaterfallChartProps) {
   }
 
   // ── Normalise contributions so baseline + Σ contributions = final ─────────
-  // The agent sometimes emits absolute market-share percentages instead of
-  // delta pp values, which makes the staircase wildly overshoot the final bar.
-  // Scaling every contribution by the same factor preserves their relative
-  // proportions while guaranteeing the chart is visually coherent.
-  const baseVal  = baseline ?? 0
-  const rawSum   = items.reduce((s, i) => s + i.contribution, 0)
-  const finalVal = current ?? (baseVal + rawSum)
-  const targetGap = finalVal - baseVal  // the gap we need to bridge
+  const baseVal   = baseline ?? 0
+  const rawSum    = items.reduce((s, i) => s + i.contribution, 0)
+  const finalVal  = current ?? (baseVal + rawSum)
+  const targetGap = finalVal - baseVal
 
   const scaledItems: WaterfallItem[] =
     rawSum !== 0 && Math.abs(rawSum - targetGap) > 0.001
       ? items.map(i => ({ ...i, contribution: (i.contribution / rawSum) * targetGap }))
       : items
 
-  // Build recharts data: invisible "offset" bar + visible value bar
-  type WFPoint = {
-    name: string
-    offset: number
-    value: number
-    isNeg: boolean
-    isTotal: boolean
-    raw: number
-  }
-
-  const chartData: WFPoint[] = []
-
-  // Baseline bar — always shown (full bar from 0)
-  chartData.push({ name: 'Baseline', offset: 0, value: baseVal, isNeg: false, isTotal: true, raw: baseVal })
+  // ── Build bar descriptors ─────────────────────────────────────────────────
+  const bars: WFBar[] = []
+  bars.push({ label: 'Baseline', yBot: 0, yTop: baseVal, isTotal: true, isNeg: false, raw: baseVal })
   let running = baseVal
-
   for (const item of scaledItems) {
-    const isNeg = item.contribution < 0
-    const offset = isNeg ? running + item.contribution : running
-    chartData.push({
-      name: item.segment,
-      offset: Math.max(0, offset),
-      value: Math.abs(item.contribution),
-      isNeg,
+    const isNeg  = item.contribution < 0
+    const newRun = running + item.contribution
+    bars.push({
+      label:   item.segment,
+      yBot:    isNeg ? newRun : running,  // bottom of bar (lower value)
+      yTop:    isNeg ? running : newRun,  // top of bar (higher value)
       isTotal: false,
-      raw: item.contribution,
+      isNeg,
+      raw:     item.contribution,
     })
-    running += item.contribution
+    running = newRun
   }
+  bars.push({ label: 'Final', yBot: 0, yTop: finalVal, isTotal: true, isNeg: false, raw: finalVal })
 
-  // Final bar — always shown (full bar from 0)
-  chartData.push({ name: 'Final', offset: 0, value: finalVal, isNeg: false, isTotal: true, raw: finalVal })
+  // ── SVG layout constants ──────────────────────────────────────────────────
+  const W   = containerWidth > 0 ? containerWidth : 700
+  const H   = 300
+  const ML  = 48   // left margin (Y-axis labels)
+  const MR  = 16
+  const MT  = 12
+  const MB  = 72   // bottom margin (rotated X labels)
+  const plotW = W - ML - MR
+  const plotH = H - MT - MB
+  const MIN_BAR_PX = 4  // minimum rendered bar height
 
-  const maxVal = Math.max(...chartData.map(d => d.offset + d.value), 1)
-  const chartH = 280
-  const chartW = containerWidth > 0 ? containerWidth - 32 : 700
+  // ── Y scale ──────────────────────────────────────────────────────────────
+  const allY   = bars.flatMap(b => [b.yBot, b.yTop])
+  const domMin = Math.min(0, ...allY)
+  const domMax = Math.max(...allY)
+  const domRange = domMax - domMin || 1
+  const yPad   = domRange * 0.08          // 8% headroom at top
 
-  // Custom tooltip
-  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: { payload: WFPoint }[] }) => {
-    if (!active || !payload?.length) return null
-    const d = payload[0].payload
-    return (
-      <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-lg text-xs">
-        <p className="font-semibold text-gray-800 mb-1">{d.name}</p>
-        <p style={{ color: d.isTotal ? WATERFALL_BASE : d.isNeg ? WATERFALL_NEG : WATERFALL_POS }}>
-          {d.isTotal ? d.raw.toFixed(2) : (d.isNeg ? '' : '+') + d.raw.toFixed(2) + ' pp'}
-        </p>
-      </div>
-    )
-  }
+  // sy: value → SVG y-pixel (higher value = smaller y = closer to top)
+  const sy = (v: number) =>
+    MT + plotH * (1 - (v - domMin) / (domRange + yPad))
+
+  // ── X layout ─────────────────────────────────────────────────────────────
+  const slotW  = plotW / bars.length
+  const barW   = Math.max(20, Math.min(56, slotW * 0.62))
+  const bx     = (i: number) => ML + i * slotW + (slotW - barW) / 2   // left edge of bar i
+
+  // ── Y-axis ticks ─────────────────────────────────────────────────────────
+  const N_TICKS = 5
+  const tickStep = (domMax - domMin) / N_TICKS
+  const yTicks   = Array.from({ length: N_TICKS + 1 }, (_, k) => domMin + k * tickStep)
+
+  // ── Fill colour helper ────────────────────────────────────────────────────
+  const barFill = (b: WFBar) =>
+    b.isTotal ? WATERFALL_BASE : b.isNeg ? WATERFALL_NEG : WATERFALL_POS
 
   return (
-    <div ref={containerRef}>
-      <div style={{ width: chartW, height: chartH }}>
-        <ComposedChart
-          width={chartW}
-          height={chartH}
-          data={chartData}
-          margin={{ top: 8, right: 16, bottom: 60, left: 32 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-          <XAxis
-            dataKey="name"
-            tick={{ fontSize: 10, fill: '#6b7280' }}
-            angle={-35}
-            textAnchor="end"
-            height={56}
-            interval={0}
-          />
-          <YAxis
-            tick={{ fontSize: 10, fill: '#6b7280' }}
-            tickFormatter={(v: number) => v.toFixed(1)}
-            domain={[0, maxVal * 1.12]}
-            width={40}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1} />
-          {/* Invisible spacer bar that lifts the visible bar to the right baseline */}
-          <Bar dataKey="offset" stackId="wf" fill="transparent" isAnimationActive={false} legendType="none" />
-          {/* Visible contribution bar */}
-          <Bar dataKey="value" stackId="wf" radius={[3, 3, 0, 0]} isAnimationActive={false}>
-            {chartData.map((entry, i) => (
-              <Cell
-                key={`cell-${i}`}
-                fill={entry.isTotal ? WATERFALL_BASE : entry.isNeg ? WATERFALL_NEG : WATERFALL_POS}
-                opacity={0.85}
-              />
-            ))}
-          </Bar>
-        </ComposedChart>
-      </div>
+    <div ref={containerRef} className="relative select-none">
+      <svg
+        width={W}
+        height={H}
+        style={{ overflow: 'visible' }}
+        onMouseLeave={() => setTooltip(null)}
+      >
+        {/* ── Grid lines & Y axis ── */}
+        {yTicks.map((tick, k) => {
+          const py = sy(tick)
+          return (
+            <g key={k}>
+              <line x1={ML} y1={py} x2={ML + plotW} y2={py}
+                stroke="#f0f0f0" strokeWidth={1} />
+              <text x={ML - 6} y={py + 4}
+                textAnchor="end" fontSize={10} fill="#9ca3af">
+                {tick.toFixed(1)}
+              </text>
+            </g>
+          )
+        })}
 
-      {/* Legend */}
+        {/* Zero reference line */}
+        <line x1={ML} y1={sy(0)} x2={ML + plotW} y2={sy(0)}
+          stroke="#d1d5db" strokeWidth={1} />
+
+        {/* ── Bars + connectors ── */}
+        {bars.map((bar, i) => {
+          const x    = bx(i)
+          const rawH = sy(bar.yBot) - sy(bar.yTop)   // pixels, always ≥ 0
+          const barH = Math.max(rawH, MIN_BAR_PX)
+          // If the bar is so thin we padded it, push the top up so bottom stays anchored.
+          const barY = sy(bar.yTop) - Math.max(0, MIN_BAR_PX - rawH)
+
+          // Stair connector: horizontal line from right edge of this bar
+          // to left edge of next bar, at the value where the next bar starts.
+          // For total bars: connector height = bar top (= bar value).
+          // For neg bars:   connector height = bar bottom (new running total).
+          // For pos bars:   connector height = bar top (new running total).
+          const nextBar = bars[i + 1]
+          const showConnector = !!nextBar
+          // The y-value where the next bar will start (its yBot for pos/total, its yTop for neg)
+          const connectorVal = bar.isNeg ? bar.yBot : bar.yTop
+          const connY        = sy(connectorVal)
+          const nextX        = nextBar ? bx(i + 1) : 0
+
+          return (
+            <g key={i}>
+              {/* Main bar */}
+              <rect
+                x={x} y={barY} width={barW} height={barH}
+                fill={barFill(bar)} opacity={0.88} rx={2}
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={e => {
+                  const svg = (e.currentTarget as SVGRectElement).ownerSVGElement!
+                  const rect = svg.getBoundingClientRect()
+                  setTooltip({
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top,
+                    bar,
+                  })
+                }}
+                onMouseMove={e => {
+                  const svg = (e.currentTarget as SVGRectElement).ownerSVGElement!
+                  const rect = svg.getBoundingClientRect()
+                  setTooltip(prev => prev ? { ...prev, x: e.clientX - rect.left, y: e.clientY - rect.top } : null)
+                }}
+                onMouseLeave={() => setTooltip(null)}
+              />
+
+              {/* Stair connector to next bar */}
+              {showConnector && (
+                <line
+                  x1={x + barW} y1={connY}
+                  x2={nextX}    y2={connY}
+                  stroke="#9ca3af" strokeWidth={1}
+                  strokeDasharray="3 2"
+                  pointerEvents="none"
+                />
+              )}
+
+              {/* X-axis label */}
+              <text
+                x={x + barW / 2}
+                y={H - MB + 10}
+                textAnchor="end"
+                fontSize={10}
+                fill="#6b7280"
+                transform={`rotate(-38, ${x + barW / 2}, ${H - MB + 10})`}
+              >
+                {bar.label.length > 22 ? bar.label.slice(0, 22) + '…' : bar.label}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+
+      {/* ── Tooltip ── */}
+      {tooltip && (
+        <div
+          className="pointer-events-none absolute z-10 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-lg text-xs"
+          style={{ left: tooltip.x + 12, top: tooltip.y - 8 }}
+        >
+          <p className="font-semibold text-gray-800 mb-0.5">{tooltip.bar.label}</p>
+          <p style={{ color: barFill(tooltip.bar) }}>
+            {tooltip.bar.isTotal
+              ? tooltip.bar.raw.toFixed(2)
+              : (tooltip.bar.isNeg ? '' : '+') + tooltip.bar.raw.toFixed(2) + ' pp'}
+          </p>
+        </div>
+      )}
+
+      {/* ── Legend ── */}
       <div className="flex items-center gap-4 mt-1 text-xs text-gray-500 justify-center">
         <span className="flex items-center gap-1">
           <span className="inline-block w-3 h-3 rounded-sm" style={{ background: WATERFALL_POS }} />

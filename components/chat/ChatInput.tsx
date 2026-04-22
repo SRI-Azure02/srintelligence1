@@ -1,13 +1,51 @@
 "use client";
 
 import React, { useState, useRef, useEffect, KeyboardEvent } from "react";
-import { ArrowUp, ChevronDown, ChevronRight, Database, StopCircle, Star, TrendingUp, Layers, GitFork, BarChart2, GitPullRequestArrow } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronRight, Database, StopCircle, Star, TrendingUp, Layers, GitFork, BarChart2, GitPullRequestArrow, Mic, MicOff } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { semanticTables } from "@/lib/mock-data";
 
 // Uppercase table names from the known semantic model — used as a fallback
 // filter when the Cortex Analyst YAML can't be read from the stage.
 const SEMANTIC_MODEL_TABLES = new Set(semanticTables.map(t => t.name.toUpperCase()));
+
+// ---------------------------------------------------------------------------
+// Web Speech API types
+// ---------------------------------------------------------------------------
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  [index: number]: SpeechRecognitionAlternative;
+}
+interface SpeechRecognitionResultList {
+  length: number;
+  [index: number]: SpeechRecognitionResult;
+}
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+interface ISpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+}
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => ISpeechRecognition;
+    webkitSpeechRecognition?: new () => ISpeechRecognition;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Agent + model catalogue shown in the "/" picker
@@ -246,6 +284,18 @@ export default function ChatInput({
   const historyIdxRef = useRef(-1);
   const draftRef = useRef("");
 
+  // Voice-to-query
+  const [isRecording, setIsRecording] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState("");
+  const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  /** Value at the moment recording started — new speech appends to this. */
+  const voiceBaseRef = useRef("");
+  /** Ref mirror of interimTranscript — avoids stale closures in onend. */
+  const interimRef = useRef("");
+  /** Whether the browser supports the Speech Recognition API. */
+  const speechSupported = typeof window !== "undefined" &&
+    !!(window.SpeechRecognition ?? window.webkitSpeechRecognition);
+
   // Fetch semantic views — apply any user-defined custom names from localStorage
   useEffect(() => {
     const customNames = loadCustomNames();
@@ -335,6 +385,85 @@ export default function ChatInput({
     const item = featureListRef.current.querySelector(`[data-feature-idx="${featureIdx}"]`) as HTMLElement | null;
     item?.scrollIntoView({ block: "nearest" });
   }, [featureIdx, featurePopup]);
+
+  // Stop recognition on unmount
+  useEffect(() => {
+    return () => { recognitionRef.current?.stop(); };
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Voice-to-query
+  // ---------------------------------------------------------------------------
+
+  const toggleVoice = () => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (!SR) return;
+
+    const recognition = new SR();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    // Capture current value so speech appends cleanly
+    voiceBaseRef.current = value;
+    interimRef.current = "";
+
+    recognition.onresult = (e: SpeechRecognitionEvent) => {
+      let finalChunk = "";
+      let interimChunk = "";
+
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const text = e.results[i][0].transcript;
+        if (e.results[i].isFinal) {
+          finalChunk += text;
+        } else {
+          interimChunk += text;
+        }
+      }
+
+      if (finalChunk) {
+        // Commit the final text into the base so next result appends correctly
+        voiceBaseRef.current =
+          (voiceBaseRef.current ? voiceBaseRef.current.trimEnd() + " " : "") + finalChunk.trim();
+        setValue(voiceBaseRef.current);
+        interimRef.current = "";
+        setInterimTranscript("");
+      } else {
+        interimRef.current = interimChunk;
+        setInterimTranscript(interimChunk);
+      }
+    };
+
+    recognition.onerror = () => {
+      setIsRecording(false);
+      interimRef.current = "";
+      setInterimTranscript("");
+    };
+
+    recognition.onend = () => {
+      // Flush any trailing interim text that never became final
+      if (interimRef.current) {
+        const flushed =
+          (voiceBaseRef.current ? voiceBaseRef.current.trimEnd() + " " : "") +
+          interimRef.current.trim();
+        setValue(flushed);
+      }
+      interimRef.current = "";
+      setInterimTranscript("");
+      setIsRecording(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsRecording(true);
+    // Focus textarea so the user can see the live transcript appearing
+    textareaRef.current?.focus();
+  };
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -488,6 +617,8 @@ export default function ChatInput({
   const handleChange = (newVal: string) => {
     setValue(newVal);
     historyIdxRef.current = -1; // exit history cycling on any typing
+    // Keep voiceBase in sync so the next recognition result appends correctly
+    if (isRecording) voiceBaseRef.current = newVal;
 
     // Update feature picker when it's open or detect comma trigger
     const el = textareaRef.current;
@@ -1002,6 +1133,22 @@ export default function ChatInput({
           }}
         />
 
+        {/* Mic button — hidden while streaming */}
+        {!isStreaming && speechSupported && (
+          <button
+            onClick={toggleVoice}
+            title={isRecording ? "Stop recording" : "Voice input"}
+            className="flex items-center justify-center w-8 h-8 rounded-lg transition-all shrink-0"
+            style={{
+              background: isRecording ? "rgba(239,68,68,0.1)" : "transparent",
+              color:      isRecording ? "#ef4444"             : "var(--text-muted)",
+              border:     isRecording ? "1px solid rgba(239,68,68,0.3)" : "1px solid transparent",
+            }}
+          >
+            {isRecording ? <MicOff size={15} /> : <Mic size={15} />}
+          </button>
+        )}
+
         {isStreaming ? (
           <button
             onClick={onAbort}
@@ -1027,6 +1174,38 @@ export default function ChatInput({
           </button>
         )}
       </div>
+
+      {/* Live voice transcript strip ───────────────────────────────────── */}
+      {isRecording && (
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-lg"
+          style={{
+            background: "rgba(239,68,68,0.04)",
+            border: "1px solid rgba(239,68,68,0.18)",
+          }}
+        >
+          {/* Pulsing dot */}
+          <span className="relative flex shrink-0" style={{ width: 8, height: 8 }}>
+            <span
+              className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+              style={{ background: "#ef4444" }}
+            />
+            <span
+              className="relative inline-flex rounded-full"
+              style={{ width: 8, height: 8, background: "#ef4444" }}
+            />
+          </span>
+          <span
+            className="text-xs flex-1 truncate"
+            style={{ color: interimTranscript ? "var(--text-primary)" : "var(--text-muted)", fontStyle: interimTranscript ? "normal" : "italic" }}
+          >
+            {interimTranscript || "Listening…"}
+          </span>
+          <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
+            Click <MicOff size={10} style={{ display: "inline", verticalAlign: "middle" }} /> to stop
+          </span>
+        </div>
+      )}
 
       {/* Help text ────────────────────────────────────────────────────────── */}
       {!isStreaming && (

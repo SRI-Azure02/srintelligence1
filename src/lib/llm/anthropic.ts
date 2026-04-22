@@ -184,12 +184,16 @@ export async function decomposeIntoPipeline(params: {
     '     • Metric tree: MTREE',
     '     • Clustering: CLUSTER, CLUSTER_GM, CLUSTER_DBSCAN, CLUSTER_HIERARCHICAL,',
     '       CLUSTER_KMEANS, CLUSTER_KMEDOIDS, CLUSTER_COMPARE',
-    '     • Causal: CAUSAL_AUTO, CAUSAL_CONTRIBUTION, CAUSAL_DRIVERS,',
-    '       CAUSAL_VALIDATION, CAUSAL_NARRATIVE, CAUSAL_PIPELINE',
+    '     • Causal: CAUSAL_AUTO, CAUSAL_CONTRIBUTION, CAUSAL_DRIVERS, CAUSAL_VALIDATION,',
+    '       CAUSAL_NARRATIVE, CAUSAL_PIPELINE',
     '  3. Only include ANALYST as a step when the user explicitly asks for raw data',
     '     exploration or SQL output — not as a mandatory first step.',
     '  4. dependsOn must reference stepIds of preceding steps only.',
     '  5. Respond with valid JSON only — no markdown fences, no explanation.',
+    '  6. For causal inference requests, use the full 4-step sequential pipeline:',
+    '     CAUSAL_CONTRIBUTION → CAUSAL_DRIVERS → CAUSAL_VALIDATION → CAUSAL_NARRATIVE.',
+    '     Each step depends on the previous one. Use CAUSAL_AUTO only when the user',
+    '     explicitly requests a single-step auto analysis.',
   ].join('\n');
 
   const userContent = [
