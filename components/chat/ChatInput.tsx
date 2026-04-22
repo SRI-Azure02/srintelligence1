@@ -287,6 +287,7 @@ export default function ChatInput({
   // Voice-to-query
   const [isRecording, setIsRecording] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
+  const [micHovered, setMicHovered] = useState(false);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
   /** Value at the moment recording started — new speech appends to this. */
   const voiceBaseRef = useRef("");
@@ -1137,12 +1138,23 @@ export default function ChatInput({
         {!isStreaming && speechSupported && (
           <button
             onClick={toggleVoice}
+            onMouseEnter={() => setMicHovered(true)}
+            onMouseLeave={() => setMicHovered(false)}
             title={isRecording ? "Stop recording" : "Voice input"}
-            className="flex items-center justify-center w-8 h-8 rounded-lg transition-all shrink-0"
+            className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
             style={{
-              background: isRecording ? "rgba(239,68,68,0.1)" : "transparent",
-              color:      isRecording ? "#ef4444"             : "var(--text-muted)",
-              border:     isRecording ? "1px solid rgba(239,68,68,0.3)" : "1px solid transparent",
+              background: isRecording
+                ? micHovered ? "rgba(239,68,68,0.2)" : "rgba(239,68,68,0.1)"
+                : micHovered ? "var(--bg-hover)"     : "transparent",
+              color: isRecording
+                ? "#ef4444"
+                : micHovered ? "var(--text-primary)" : "var(--text-muted)",
+              border: isRecording
+                ? micHovered ? "1px solid rgba(239,68,68,0.5)" : "1px solid rgba(239,68,68,0.3)"
+                : micHovered ? "1px solid var(--border)"       : "1px solid transparent",
+              transform: micHovered ? "scale(1.08)" : "scale(1)",
+              transition: "background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease",
+              cursor: "pointer",
             }}
           >
             {isRecording ? <MicOff size={15} /> : <Mic size={15} />}

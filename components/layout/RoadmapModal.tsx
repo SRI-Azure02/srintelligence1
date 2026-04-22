@@ -5,7 +5,7 @@ import { X, Milestone, Sparkles, Presentation, Building2, Users, Bell, Plug, Sma
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Priority = "must" | "high" | "value" | "diff";
-type Status   = "planned" | "idea";
+type Status   = "planned" | "idea" | "shipped";
 
 interface RoadmapItem {
   id:        number;
@@ -219,6 +219,7 @@ const SECTIONS: RoadmapSection[] = [
         id: 22,
         title: "Voice-to-Query",
         description: "Microphone button in chat input — speak a question and it's transcribed, routed, and executed.",
+        status: "shipped",
         priority: "diff",
       },
     ],
@@ -249,6 +250,7 @@ const PRIORITY_CFG: Record<Priority, { label: string; bg: string; color: string 
 const STATUS_CFG: Record<Status, { label: string; bg: string; color: string }> = {
   planned: { label: "Planned", bg: "rgba(139,92,246,0.1)", color: "#7c3aed" },
   idea:    { label: "Idea",    bg: "rgba(100,116,139,0.1)", color: "#475569" },
+  shipped: { label: "Shipped", bg: "rgba(40,145,218,0.1)", color: "#2891DA" },
 };
 
 function PriorityBadge({ p }: { p: Priority }) {
@@ -290,8 +292,25 @@ function ItemRow({ item, showBadges }: { item: RoadmapItem; showBadges: boolean 
 
       {/* Text */}
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>{item.title}</p>
-        <p className="text-xs mt-0.5 leading-relaxed" style={{ color: "var(--text-muted)" }}>{item.description}</p>
+        <p
+          className="text-xs font-semibold"
+          style={{
+            color: item.status === "shipped" ? "var(--text-muted)" : "var(--text-primary)",
+            textDecoration: item.status === "shipped" ? "line-through" : "none",
+          }}
+        >
+          {item.title}
+        </p>
+        <p
+          className="text-xs mt-0.5 leading-relaxed"
+          style={{
+            color: "var(--text-muted)",
+            textDecoration: item.status === "shipped" ? "line-through" : "none",
+            opacity: item.status === "shipped" ? 0.6 : 1,
+          }}
+        >
+          {item.description}
+        </p>
       </div>
 
       {/* Badges — hidden unless toggled on */}
