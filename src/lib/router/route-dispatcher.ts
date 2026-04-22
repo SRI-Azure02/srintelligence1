@@ -302,9 +302,11 @@ function buildCohortClusterSQL(priorSQL: string, priorColumns: string[]): string
   const idCol = priorColumns.find(c => ID_PATTERNS.test(c))
     ?? priorColumns[0]; // fallback: first column
 
-  // Feature columns: everything that isn't the ID and doesn't look like a dimension
+  // Feature columns: everything that isn't the ID and doesn't look like a text/dimension column.
+  // Extended to exclude geographic/contact text fields (city, address, street, zip, phone, fax)
+  // that were previously counted as features and leading to wrong path selection.
   const featureCols = priorColumns.filter(
-    c => c !== idCol && !SKIP_PATTERNS.test(c),
+    c => c !== idCol && !SKIP_PATTERNS.test(c) && !/city|address|street|zip|phone|fax/i.test(c),
   );
 
   if (featureCols.length === 0) {
@@ -1643,31 +1645,47 @@ export class RouteDispatcher {
       const rawIdCol = priorAnalyst.columns.find(c => ENTITY_ID_RE.test(c)) ?? priorAnalyst.columns[0];
       // idCol: normalised to an actual RX_TABLE column name
       const idCol = normaliseEntityKey(rawIdCol);
-      console.log(`[CLUSTER] cohortKey="${rawIdCol}" → rxKey="${idCol}"`);
+      // keyNormalized: true when rawIdCol and idCol differ (e.g. physician_gid → physician_key).
+      // In that case PATH 1A-SCOPED is unsafe: joining RX_TABLE.physician_key against
+      // physician_gid values silently drops physicians whose gid ≠ their key value.
+      const keyNormalized = rawIdCol.toLowerCase() !== idCol.toLowerCase();
+      console.log(`[CLUSTER] cohortKey="${rawIdCol}" → rxKey="${idCol}" keyNormalized=${keyNormalized}`);
 
+      // Numeric feature columns in the prior result.
+      // Extended SKIP pattern to also exclude text/geographic columns (city, address, etc.)
+      // that were previously slipping through and inflating the count with non-numeric data.
       const priorFeatureCols = priorAnalyst.columns.filter(
-        c => !/key|_id$|^id_|^npi|gid|identifier|code$|name|desc|label|date|year|month|quarter|day|state|type|category|status|flag/i.test(c),
+        c => !/key|_id$|^id_|^npi|gid|identifier|code$|name|desc|label|date|year|month|quarter|day|state|type|category|status|flag|city|address|street|zip|phone|fax/i.test(c),
       );
 
-      if (priorFeatureCols.length >= 5) {
-        // PATH 1A: prior result has enough numeric feature columns.
+      // PATH 1A — always preferred when a prior cohort exists.
+      //
+      // Two cases force PATH 1A over PATH 1A-SCOPED:
+      //   (a) keyNormalized=true: cohortKey (e.g. physician_gid) ≠ RX_TABLE join key
+      //       (physician_key).  Joining on the wrong key silently drops physicians
+      //       whose gid value does not match any physician_key value — this is the
+      //       primary cause of the "dropping records" bug.  Use the prior cohort SQL
+      //       as-is (wrapping in _prior_cohort CTE) so the EXACT cohort is preserved.
+      //   (b) priorFeatureCols.length >= 1: the prior result already has at least
+      //       one numeric feature column we can feed to the UDTF.
+      //
+      // enrichClusterInputSQL will not rebuild CTE-based SQL that references
+      // _prior_cohort, so the cohort is always preserved regardless of feature count.
+      if (keyNormalized || priorFeatureCols.length >= 1) {
         const cohortSQL = buildCohortClusterSQL(priorAnalyst.sql, priorAnalyst.columns);
         if (cohortSQL) {
           const enriched = enrichClusterInputSQL(cohortSQL, nFeatures);
-          if (countObjectConstructKeys(enriched) >= nFeatures) {
-            console.log(`[CLUSTER] PATH 1A: using prior cohort SQL features.`);
+          const nKeys = countObjectConstructKeys(enriched);
+          if (nKeys >= 1) {
+            console.log(`[CLUSTER] PATH 1A: ${nKeys} feature(s), keyNormalized=${keyNormalized}`);
             inputQuery = enriched;
           }
         }
       }
 
-      if (!inputQuery) {
-        // PATH 1A-SCOPED: re-aggregate from RX_TABLE scoped to the cohort.
-        // cohortKey reads from _prior_cohort using the raw column name.
-        // rxKey drives the RX_TABLE GROUP BY using the normalised column name.
-        // These two are kept separate so column-name mismatches between what
-        // Cortex Analyst called the column and what RX_TABLE actually has don't
-        // cause SQL compilation errors.
+      if (!inputQuery && !keyNormalized) {
+        // PATH 1A-SCOPED: safe only when cohortKey == rxKey (no normalization).
+        // Re-aggregates rich RX_TABLE features scoped to the prior cohort keys.
         console.log(`[CLUSTER] PATH 1A-SCOPED: cohortKey="${rawIdCol}" rxKey="${idCol}" nFeatures=${nFeatures}`);
         inputQuery = buildCohortScopedFeatureSQL(rawIdCol, idCol, priorAnalyst.sql, nFeatures);
         console.log(`[CLUSTER] PATH 1A-SCOPED SQL (first 400):\n${inputQuery.slice(0, 400)}`);
