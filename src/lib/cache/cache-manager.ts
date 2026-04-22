@@ -9,6 +9,10 @@ import { createHash } from 'crypto';
 import type { AgentIntent, AgentResult, AgentContext } from '../../types/agent';
 import { executeSQL } from '../snowflake/sql-api';
 
+const _DB  = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
+const _SCH = process.env.SNOWFLAKE_SCHEMA   ?? 'PUBLIC';
+const _NS  = `${_DB}.${_SCH}`;
+
 // ---------------------------------------------------------------------------
 // Shapes
 // ---------------------------------------------------------------------------
@@ -101,7 +105,7 @@ export class CacheManager {
     try {
       const sql = `
         SELECT result_json, cached_at
-        FROM CORTEX_TESTING.PUBLIC.QUERY_CACHE
+        FROM ${_NS}.QUERY_CACHE
         WHERE cache_key = '${key}'
           AND expires_at > CURRENT_TIMESTAMP()
         LIMIT 1
@@ -166,7 +170,7 @@ export class CacheManager {
   ): Promise<void> {
     const resultJson = JSON.stringify(result).replace(/'/g, "\\'");
     const sql = `
-      MERGE INTO CORTEX_TESTING.PUBLIC.QUERY_CACHE AS tgt
+      MERGE INTO ${_NS}.QUERY_CACHE AS tgt
       USING (SELECT '${key}' AS cache_key) AS src
       ON tgt.cache_key = src.cache_key
       WHEN MATCHED THEN UPDATE SET
@@ -196,7 +200,7 @@ export class CacheManager {
       deleted = this.memoryCache.size;
       this.memoryCache.clear();
       try {
-        await executeSQL('DELETE FROM CORTEX_TESTING.PUBLIC.QUERY_CACHE');
+        await executeSQL('DELETE FROM ${_NS}.QUERY_CACHE');
       } catch { /* ignore */ }
       return deleted;
     }
@@ -206,7 +210,7 @@ export class CacheManager {
       this.memoryCache.delete(params.key);
       if (had) deleted += 1;
       try {
-        await executeSQL(`DELETE FROM CORTEX_TESTING.PUBLIC.QUERY_CACHE WHERE cache_key = '${params.key}'`);
+        await executeSQL(`DELETE FROM ${_NS}.QUERY_CACHE WHERE cache_key = '${params.key}'`);
       } catch { /* ignore */ }
     }
 
@@ -216,7 +220,7 @@ export class CacheManager {
       this.memoryCache.clear();
       try {
         await executeSQL(
-          `DELETE FROM CORTEX_TESTING.PUBLIC.QUERY_CACHE WHERE intent = '${params.intent}'`,
+          `DELETE FROM ${_NS}.QUERY_CACHE WHERE intent = '${params.intent}'`,
         );
       } catch { /* ignore */ }
       deleted += 1;
@@ -237,7 +241,7 @@ export class CacheManager {
     let snowflakeEntries = 0;
     try {
       const result = await executeSQL(
-        'SELECT COUNT(*) AS CNT FROM CORTEX_TESTING.PUBLIC.QUERY_CACHE WHERE expires_at > CURRENT_TIMESTAMP()',
+        'SELECT COUNT(*) AS CNT FROM ${_NS}.QUERY_CACHE WHERE expires_at > CURRENT_TIMESTAMP()',
       );
       if (result.rowCount > 0) {
         snowflakeEntries = Number((result.rows[0] as Record<string, unknown>)['CNT'] ?? 0);

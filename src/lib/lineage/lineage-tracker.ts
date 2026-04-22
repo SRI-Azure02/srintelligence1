@@ -9,6 +9,10 @@ import type { AgentIntent } from '../../types/agent';
 import type { LineageRecord } from '../../types/user';
 import { executeSQL } from '../snowflake/sql-api';
 
+const _DB  = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
+const _SCH = process.env.SNOWFLAKE_SCHEMA   ?? 'PUBLIC';
+const _NS  = `${_DB}.${_SCH}`;
+
 // ---------------------------------------------------------------------------
 // Record params
 // ---------------------------------------------------------------------------
@@ -82,7 +86,7 @@ export class LineageTracker {
     const filtersJson = JSON.stringify(filters).replace(/'/g, "\\'");
 
     const insertSQL = `
-      INSERT INTO CORTEX_TESTING.PUBLIC.DATA_LINEAGE (
+      INSERT INTO ${_NS}.DATA_LINEAGE (
         lineage_id, session_id, user_id, semantic_view_id, semantic_view_name,
         user_question, intent, agent_name, parent_lineage_id, source_sql,
         executed_sql, row_count, execution_time_ms, cache_status, credits_consumed
@@ -184,7 +188,7 @@ export class LineageTracker {
   async getLineage(lineageId: string): Promise<LineageRecord | null> {
     try {
       const result = await executeSQL(
-        `SELECT * FROM CORTEX_TESTING.PUBLIC.DATA_LINEAGE WHERE lineage_id = '${lineageId}' LIMIT 1`,
+        `SELECT * FROM ${_NS}.DATA_LINEAGE WHERE lineage_id = '${lineageId}' LIMIT 1`,
       );
       if (result.rowCount === 0) return null;
       return this.rowToLineageRecord(result.rows[0] as Record<string, unknown>);
@@ -208,7 +212,7 @@ export class LineageTracker {
   async getSessionLineage(sessionId: string): Promise<LineageRecord[]> {
     try {
       const result = await executeSQL(
-        `SELECT * FROM CORTEX_TESTING.PUBLIC.DATA_LINEAGE WHERE session_id = '${sessionId}' ORDER BY created_at ASC`,
+        `SELECT * FROM ${_NS}.DATA_LINEAGE WHERE session_id = '${sessionId}' ORDER BY created_at ASC`,
       );
       return result.rows.map((r) => this.rowToLineageRecord(r as Record<string, unknown>));
     } catch {
@@ -235,7 +239,7 @@ export class LineageTracker {
     const offset = params.offset ?? 0;
 
     const sql = `
-      SELECT * FROM CORTEX_TESTING.PUBLIC.DATA_LINEAGE
+      SELECT * FROM ${_NS}.DATA_LINEAGE
       WHERE ${conditions.join(' AND ')}
       ORDER BY created_at DESC
       LIMIT ${limit} OFFSET ${offset}

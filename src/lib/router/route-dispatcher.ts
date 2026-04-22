@@ -178,18 +178,18 @@ function buildClusterUDTFSQL(intent: AgentIntent, inputQuery: string, nClusters:
   const udtfParams = (() => {
     switch (intent) {
       case 'CLUSTER_GM':
-        return `CORTEX_TESTING.ML.CLUSTER_GM(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, ${nSeg})`;
+        return `${DB_ML}.CLUSTER_GM(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, ${nSeg})`;
       case 'CLUSTER_KMEDOIDS':
-        return `CORTEX_TESTING.ML.KMEDOIDS_CLUSTER(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, ${nSeg})`;
+        return `${DB_ML}.KMEDOIDS_CLUSTER(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, ${nSeg})`;
       case 'CLUSTER_HIERARCHICAL':
-        return `CORTEX_TESTING.ML.HIERARCHICAL_CLUSTER(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, ${nSeg})`;
+        return `${DB_ML}.HIERARCHICAL_CLUSTER(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, ${nSeg})`;
       case 'CLUSTER_DBSCAN':
         // EPS_VALUE=0.0 → auto-tune via k-distance heuristic; MIN_SAMPLES=5 default
-        return `CORTEX_TESTING.ML.DBSCAN_CLUSTER(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, 0.0::FLOAT, 5)`;
+        return `${DB_ML}.DBSCAN_CLUSTER(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, 0.0::FLOAT, 5)`;
       case 'CLUSTER':
       case 'CLUSTER_KMEANS':
       default:
-        return `CORTEX_TESTING.ML.KMEANS_CLUSTER(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, ${nSeg})`;
+        return `${DB_ML}.KMEANS_CLUSTER(${srcAlias}.RECORD_ID, ${srcAlias}.FEATURES, ${nSeg})`;
     }
   })();
 
@@ -524,9 +524,11 @@ function buildClusterProfileResponse(
 // any Snowflake database name without code changes.
 // ---------------------------------------------------------------------------
 
-const SNOWFLAKE_DB  = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
-const SNOWFLAKE_SCH = process.env.SNOWFLAKE_SCHEMA   ?? 'PUBLIC';
+const SNOWFLAKE_DB  = process.env.SNOWFLAKE_DATABASE  ?? 'CORTEX_TESTING';
+const SNOWFLAKE_SCH = process.env.SNOWFLAKE_SCHEMA    ?? 'PUBLIC';
+const SNOWFLAKE_ML  = process.env.SNOWFLAKE_ML_SCHEMA ?? 'ML';
 const DB_SCHEMA     = `${SNOWFLAKE_DB}.${SNOWFLAKE_SCH}`;
+const DB_ML         = `${SNOWFLAKE_DB}.${SNOWFLAKE_ML}`;
 
 /** Fully-qualified RX_TABLE used as the standard base for feature enrichment. */
 const RX_TABLE_FQN = `${DB_SCHEMA}.RX_TABLE`;
@@ -1133,7 +1135,7 @@ export class RouteDispatcher {
       else if (intent.startsWith('CLUSTER') && intent !== 'CLUSTER_COMPARE') {
         result = yield* this.dispatchCluster(
           message, intent, agentName,
-          route.cortexAgentName ?? 'CORTEX_TESTING.ML.SRI_CLUSTERING_AGENT',
+          route.cortexAgentName ?? `${DB_ML}.SRI_CLUSTERING_AGENT`,
           baseInput, signal, startMs,
         );
       }

@@ -158,11 +158,13 @@ function parseAgentRef(ref: string): { db: string; schema: string; name: string 
   if (parts.length === 3) {
     return { db: parts[0], schema: parts[1], name: parts[2] };
   }
+  const _db = process.env.SNOWFLAKE_DATABASE  ?? 'CORTEX_TESTING';
+  const _ml = process.env.SNOWFLAKE_ML_SCHEMA ?? 'ML';
   if (parts.length === 2) {
-    return { db: 'CORTEX_TESTING', schema: parts[0], name: parts[1] };
+    return { db: _db, schema: parts[0], name: parts[1] };
   }
-  // Single-part: assume default DB/schema
-  return { db: 'CORTEX_TESTING', schema: 'ML', name: clean };
+  // Single-part: assume default DB/ML schema
+  return { db: _db, schema: _ml, name: clean };
 }
 
 // ---------------------------------------------------------------------------
@@ -320,7 +322,10 @@ export async function callCortexAgent(
     const sqlStatement = (input['sql_statement'] as string | undefined)?.trim() ?? '';
     console.log(`[CORTEX_AGENT] Execute_Clustering SQL (first 300): ${sqlStatement.slice(0, 300)}`);
 
-    if (!sqlStatement.toUpperCase().startsWith('CALL CORTEX_TESTING.ML.')) {
+    const _mlDb  = process.env.SNOWFLAKE_DATABASE  ?? 'CORTEX_TESTING';
+    const _mlSch = process.env.SNOWFLAKE_ML_SCHEMA ?? 'ML';
+    const _expectedPrefix = `CALL ${_mlDb}.${_mlSch}.`.toUpperCase();
+    if (!sqlStatement.toUpperCase().startsWith(_expectedPrefix)) {
       const errMsg = `Clustering tool received invalid SQL. Expected CALL statement, got: ${sqlStatement.slice(0, 80)}`;
       console.error(`[CORTEX_AGENT] ${errMsg}`);
       // Send error back to agent so it can recover

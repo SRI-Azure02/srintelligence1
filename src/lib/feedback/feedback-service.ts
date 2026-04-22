@@ -11,6 +11,10 @@ import type {
 } from '../../types/user';
 import { executeSQL } from '../snowflake/sql-api';
 
+const _DB  = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
+const _SCH = process.env.SNOWFLAKE_SCHEMA   ?? 'PUBLIC';
+const _NS  = `${_DB}.${_SCH}`;
+
 // ---------------------------------------------------------------------------
 // Extra types specific to the service
 // ---------------------------------------------------------------------------
@@ -61,7 +65,7 @@ export class FeedbackService {
     const sessionId = params.sessionId ?? 'unknown';
     const executionId = params.executionId ?? 'unknown';
     const sql = `
-      INSERT INTO CORTEX_TESTING.PUBLIC.RESULT_FEEDBACK (
+      INSERT INTO ${_NS}.RESULT_FEEDBACK (
         feedback_id, user_id, session_id, execution_id, lineage_id,
         agent_name, intent, rating, category, comment,
         incorrect_sql, created_at
@@ -88,7 +92,7 @@ export class FeedbackService {
       const correctionId = uuidv4();
       const corrected = params.sqlCorrection.replace(/'/g, "\\'");
       await executeSQL(`
-        INSERT INTO CORTEX_TESTING.PUBLIC.FEEDBACK_SQL_CORRECTIONS (
+        INSERT INTO ${_NS}.FEEDBACK_SQL_CORRECTIONS (
           correction_id, feedback_id, agent_name,
           corrected_sql, status, created_at
         ) VALUES (
@@ -140,7 +144,7 @@ export class FeedbackService {
     const offset = params.offset ?? 0;
     try {
       const result = await executeSQL(`
-        SELECT * FROM CORTEX_TESTING.PUBLIC.RESULT_FEEDBACK
+        SELECT * FROM ${_NS}.RESULT_FEEDBACK
         WHERE ${conditions.join(' AND ')}
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
@@ -154,7 +158,7 @@ export class FeedbackService {
   async getFeedbackForExecution(executionId: string): Promise<FeedbackRecord[]> {
     try {
       const result = await executeSQL(
-        `SELECT * FROM CORTEX_TESTING.PUBLIC.RESULT_FEEDBACK
+        `SELECT * FROM ${_NS}.RESULT_FEEDBACK
          WHERE execution_id = '${executionId}'
          ORDER BY created_at DESC`,
       );
@@ -175,7 +179,7 @@ export class FeedbackService {
     try {
       const [recordResult, statsResult] = await Promise.all([
         executeSQL(`
-          SELECT * FROM CORTEX_TESTING.PUBLIC.RESULT_FEEDBACK
+          SELECT * FROM ${_NS}.RESULT_FEEDBACK
           WHERE agent_name = '${agentName}' AND rating >= ${minRating}
           ORDER BY created_at DESC
           LIMIT ${limit} OFFSET ${offset}
@@ -185,7 +189,7 @@ export class FeedbackService {
             COUNT(*) AS total_ratings,
             AVG(rating) AS avg_rating,
             SUM(CASE WHEN incorrect_sql THEN 1 ELSE 0 END) AS sql_correction_count
-          FROM CORTEX_TESTING.PUBLIC.RESULT_FEEDBACK
+          FROM ${_NS}.RESULT_FEEDBACK
           WHERE agent_name = '${agentName}'
         `),
       ]);
@@ -239,15 +243,15 @@ export class FeedbackService {
       const [overallResult, agentResult, negativeResult] = await Promise.all([
         executeSQL(`
           SELECT COUNT(*) AS total, AVG(rating) AS avg_rating
-          FROM CORTEX_TESTING.PUBLIC.RESULT_FEEDBACK
+          FROM ${_NS}.RESULT_FEEDBACK
         `),
         executeSQL(`
           SELECT agent_name, COUNT(*) AS total, AVG(rating) AS avg_rating
-          FROM CORTEX_TESTING.PUBLIC.RESULT_FEEDBACK
+          FROM ${_NS}.RESULT_FEEDBACK
           GROUP BY agent_name
         `),
         executeSQL(`
-          SELECT * FROM CORTEX_TESTING.PUBLIC.RESULT_FEEDBACK
+          SELECT * FROM ${_NS}.RESULT_FEEDBACK
           WHERE rating <= 2
           ORDER BY created_at DESC
           LIMIT 20
@@ -295,7 +299,7 @@ export class FeedbackService {
 
   async promoteSQLCorrection(feedbackId: string): Promise<void> {
     await executeSQL(`
-      UPDATE CORTEX_TESTING.PUBLIC.FEEDBACK_SQL_CORRECTIONS
+      UPDATE ${_NS}.FEEDBACK_SQL_CORRECTIONS
       SET status = 'promoted', promoted_at = CURRENT_TIMESTAMP()
       WHERE feedback_id = '${feedbackId}'
     `);

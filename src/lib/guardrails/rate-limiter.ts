@@ -4,6 +4,10 @@
 
 import { executeSQL } from '../snowflake/sql-api';
 
+const _DB  = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
+const _SCH = process.env.SNOWFLAKE_SCHEMA   ?? 'PUBLIC';
+const _NS  = `${_DB}.${_SCH}`;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -145,7 +149,7 @@ export class RateLimiter {
 
   private async logCreditUsage(userId: string, credits: number): Promise<void> {
     const sql = `
-      INSERT INTO CORTEX_TESTING.PUBLIC.CREDIT_USAGE_LOG
+      INSERT INTO ${_NS}.CREDIT_USAGE_LOG
         (user_id, credits_consumed, recorded_at)
       VALUES
         ('${userId}', ${credits}, CURRENT_TIMESTAMP())

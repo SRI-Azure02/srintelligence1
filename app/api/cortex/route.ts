@@ -5,22 +5,27 @@ import { normalizeCortexSQL } from '@/src/lib/snowflake/sql-normalizer';
 const ACCOUNT   = process.env.SNOWFLAKE_ACCOUNT!;   // e.g. hj98757.us-east-1
 const PAT       = process.env.SNOWFLAKE_PAT!;
 const WAREHOUSE = process.env.SNOWFLAKE_WAREHOUSE!;
-const DATABASE    = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
-// Strip any accidental DATABASE.SCHEMA prefix in the env var (e.g. "CORTEX_TESTING.ML" → "ML")
+const DATABASE  = process.env.SNOWFLAKE_DATABASE ?? 'CORTEX_TESTING';
+const ROLE      = process.env.SNOWFLAKE_ROLE     ?? 'APP_SVC_ROLE';
+// SNOWFLAKE_SEMANTIC_VIEW lets you override the full view path without touching DATABASE/SCHEMA.
+// Strip any accidental DATABASE.SCHEMA prefix in SNOWFLAKE_SCHEMA (e.g. "CORTEX_TESTING.ML" → "ML")
 const _SCHEMA_RAW = process.env.SNOWFLAKE_SCHEMA ?? 'PUBLIC';
 const SCHEMA      = _SCHEMA_RAW.includes('.') ? _SCHEMA_RAW.split('.').pop()! : _SCHEMA_RAW;
 const BASE_URL  = `https://${ACCOUNT}.snowflakecomputing.com`;
 
-const SEMANTIC_VIEW = `${DATABASE}.${SCHEMA}.CORTEX_TESTCASE`;
+// Prefer an explicit full override; fall back to DATABASE.SCHEMA.CORTEX_TESTCASE
+const SEMANTIC_VIEW =
+  process.env.SNOWFLAKE_SEMANTIC_VIEW ?? `${DATABASE}.${SCHEMA}.CORTEX_TESTCASE`;
 
 // ── Shared headers ────────────────────────────────────────────────────────────
-function sfHeaders() {
+function sfHeaders(includeRole = true) {
   return {
     Authorization: `Bearer ${PAT}`,
     "X-Snowflake-Authorization-Token-Type": "PROGRAMMATIC_ACCESS_TOKEN",
     "Content-Type": "application/json",
     Accept: "application/json",
     "User-Agent": "SRIntelligence/1.0",
+    ...(includeRole ? { "X-Snowflake-Role": ROLE } : {}),
   };
 }
 
@@ -52,13 +57,15 @@ async function callCortexAnalyst(messages: CortexMessage[]) {
 async function executeSQL(sql: string): Promise<{ headers: string[]; rows: (string | number)[][] }> {
   const res = await fetch(`${BASE_URL}/api/v2/statements`, {
     method: "POST",
-    headers: sfHeaders(),
+    // Role is passed in the request body for SQL API, not as a header
+    headers: sfHeaders(false),
     body: JSON.stringify({
       statement: sql,
       timeout: 60,
       database: DATABASE,
       schema: SCHEMA,
       warehouse: WAREHOUSE,
+      role: ROLE,
       parameters: { MULTI_STATEMENT_COUNT: "0" },
     }),
   });
