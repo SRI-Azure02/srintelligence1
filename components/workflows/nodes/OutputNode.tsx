@@ -110,7 +110,7 @@ export default function OutputNode({ id, data, selected }: NodeProps) {
               <BarChart2 size={14} style={{ color }} />
             </span>
             <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color, letterSpacing: "0.01em" }}>View Results</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color, letterSpacing: "0.01em" }}>Last Results</span>
               <span style={{ fontSize: 10, color: "var(--text-muted)" }}>Open combined report</span>
             </span>
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ color, opacity: 0.5, flexShrink: 0 }}>

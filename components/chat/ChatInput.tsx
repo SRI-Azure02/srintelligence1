@@ -293,9 +293,12 @@ export default function ChatInput({
   const voiceBaseRef = useRef("");
   /** Ref mirror of interimTranscript — avoids stale closures in onend. */
   const interimRef = useRef("");
-  /** Whether the browser supports the Speech Recognition API. */
-  const speechSupported = typeof window !== "undefined" &&
-    !!(window.SpeechRecognition ?? window.webkitSpeechRecognition);
+  /**
+   * Whether the browser supports the Speech Recognition API.
+   * Initialised as false so SSR and the first client render match,
+   * then set to the real value after hydration via useEffect.
+   */
+  const [speechSupported, setSpeechSupported] = useState(false);
 
   // Fetch semantic views — apply any user-defined custom names from localStorage
   useEffect(() => {
@@ -386,6 +389,11 @@ export default function ChatInput({
     const item = featureListRef.current.querySelector(`[data-feature-idx="${featureIdx}"]`) as HTMLElement | null;
     item?.scrollIntoView({ block: "nearest" });
   }, [featureIdx, featurePopup]);
+
+  // Detect Speech Recognition support after hydration (avoids SSR mismatch)
+  useEffect(() => {
+    setSpeechSupported(!!(window.SpeechRecognition ?? window.webkitSpeechRecognition));
+  }, []);
 
   // Stop recognition on unmount
   useEffect(() => {

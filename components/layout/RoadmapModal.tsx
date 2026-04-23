@@ -100,6 +100,7 @@ const SECTIONS: RoadmapSection[] = [
         id: 8,
         title: "Story Mode / Narrative Reports",
         description: "One click converts a workflow run into an AI-written executive report. Export to PDF or PowerPoint.",
+        status: "shipped",
         priority: "must",
       },
       {

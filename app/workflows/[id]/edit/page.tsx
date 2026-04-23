@@ -7,6 +7,7 @@ import {
   StickyNote, ChevronDown, FastForward, Bookmark, Trash,
   Square, X, BarChart2, TrendingUp,
   Layers, Search, FileText, Maximize2, Minimize2,
+  BookOpen, Loader2,
 } from "lucide-react";
 import WorkflowCanvas, { edgeDefaults } from "@/components/workflows/WorkflowCanvas";
 import type { WorkflowCanvasHandle } from "@/components/workflows/WorkflowCanvas";
@@ -23,6 +24,8 @@ import type { AgentArtifact } from "@/src/types/agent";
 import ForecastArtifact from "@/src/components/artifacts/ForecastArtifact";
 import DataTableArtifact from "@/src/components/artifacts/DataTableArtifact";
 import SegmentationArtifact from "@/src/components/artifacts/SegmentationArtifact";
+import StoryReportModal from "@/src/components/story/StoryReportModal";
+import type { StoryReport } from "@/src/lib/llm/anthropic";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type ScheduleType = "daily" | "weekly" | "monthly";
@@ -833,6 +836,8 @@ export default function WorkflowEditPage() {
   const [modifiedLabel, setModifiedLabel] = useState<string | null>(null);
   const [notes,    setNotes]    = useState("");
   const [notesOpen, setNotesOpen] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [storyReport,   setStoryReport]   = useState<StoryReport | null>(null);
 
   // Version history
   const [versions,          setVersions]          = useState<WorkflowVersion[]>([]);
@@ -988,6 +993,42 @@ export default function WorkflowEditPage() {
     router.replace("/workflows");
   }, [workflowId, workflowName, isRunning, router]);
 
+  // ── Executive Brief ───────────────────────────────────────────────────────
+  const handleGenerateReport = useCallback(async () => {
+    if (reportLoading) return;
+    setReportLoading(true);
+    try {
+      const chain = canvasRef.current?.getAgentChain() ?? [];
+      const messages = chain.length > 0
+        ? chain.map((step) => ({
+            role: "agent",
+            content: `Agent: ${step.label}\nType: ${step.type}\nPrompt: ${step.prompt ?? "—"}`,
+            agentActivity: { routedTo: step.label },
+          }))
+        : [{
+            role: "agent",
+            content: `Workflow: ${workflowName}`,
+            agentActivity: { routedTo: "Workflow Overview" },
+          }];
+
+      const res = await fetch("/api/agent/report", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadTitle: workflowName, messages }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Failed" })) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json() as { report: StoryReport };
+      setStoryReport(data.report);
+    } catch (err) {
+      console.error("[ExecutiveBrief]", err);
+    } finally {
+      setReportLoading(false);
+    }
+  }, [reportLoading, workflowName]);
+
   // ── Run / Abort ───────────────────────────────────────────────────────────
   const handleRun = useCallback(() => {
     if (!workflowId) return;
@@ -1105,6 +1146,24 @@ export default function WorkflowEditPage() {
           >
             <StickyNote size={16} />
             Notes
+          </button>
+
+          {/* Executive Brief */}
+          <button
+            onClick={handleGenerateReport}
+            disabled={reportLoading}
+            title="Generate an AI executive brief from this workflow"
+            className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-blue-50 disabled:opacity-40"
+            style={{
+              color: reportLoading ? "rgba(40,145,218,0.7)" : "#2891DA",
+              border: "1px solid rgba(40,145,218,0.4)",
+              background: "rgba(40,145,218,0.05)",
+              minWidth: 140,
+            }}
+          >
+            {reportLoading
+              ? <><Loader2 size={13} className="animate-spin" />Generating…</>
+              : <><BookOpen size={13} />Executive Brief</>}
           </button>
 
           {isRunning ? (
@@ -1231,6 +1290,14 @@ export default function WorkflowEditPage() {
           workflowId={workflowId}
         />
       </div>
+
+      {storyReport && (
+        <StoryReportModal
+          report={storyReport}
+          threadTitle={workflowName}
+          onClose={() => setStoryReport(null)}
+        />
+      )}
     </div>
   );
 }

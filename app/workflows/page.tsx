@@ -9,7 +9,7 @@ import {
   Activity, Cpu, FileText, Search,
   List, SortAsc, ChevronDown, Check,
   Play, Copy, Share2, Square, Edit2,
-  ExternalLink,
+  ExternalLink, BookOpen, Loader2,
 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import WorkflowCardComponent from "@/components/workflows/WorkflowCard";
@@ -18,6 +18,8 @@ import { loadSavedWorkflows, deleteWorkflow } from "@/lib/workflow-storage";
 import { runStore } from "@/lib/run-store";
 import { useActiveRun, useLastRun } from "@/lib/use-run-store";
 import ShareModal from "@/components/workflows/ShareModal";
+import StoryReportModal from "@/src/components/story/StoryReportModal";
+import type { StoryReport } from "@/src/lib/llm/anthropic";
 
 // ── Agent icon map — keep in sync with WorkflowCard.tsx AGENT_ICONS ──────────
 const TMPL_ICONS: Record<string, LucideIcon> = {
@@ -149,8 +151,10 @@ function WorkflowListRow({
   onDelete?: (id: string) => void;
 }) {
   const router = useRouter();
-  const [showShare,  setShowShare]  = useState(false);
-  const [duplicated, setDuplicated] = useState(false);
+  const [showShare,     setShowShare]     = useState(false);
+  const [duplicated,    setDuplicated]    = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [storyReport,   setStoryReport]   = useState<StoryReport | null>(null);
 
   const activeRun = useActiveRun(workflow.id);
   const lastRun   = useLastRun(workflow.id);
@@ -170,6 +174,30 @@ function WorkflowListRow({
     onDuplicate?.(workflow.id);
     setDuplicated(true);
     setTimeout(() => setDuplicated(false), 1500);
+  };
+
+  const handleGenerateReport = async () => {
+    if (reportLoading) return;
+    setReportLoading(true);
+    try {
+      const messages = workflow.agentChain.map((step) => ({
+        role: "agent",
+        content: `Agent: ${step.label}\nType: ${step.type}\nPrompt: ${step.prompt ?? "—"}`,
+        agentActivity: { routedTo: step.label },
+      }));
+      const res = await fetch("/api/agent/report", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadTitle: workflow.name, messages }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { report: StoryReport };
+      setStoryReport(data.report);
+    } catch (err) {
+      console.error("[ExecutiveBrief]", err);
+    } finally {
+      setReportLoading(false);
+    }
   };
 
   // ── Running state ──────────────────────────────────────────────────────────
@@ -289,16 +317,37 @@ function WorkflowListRow({
             <p className="text-xs" style={{ color: "#22c55e" }}>Run complete · results ready</p>
           </div>
 
-          {/* View results */}
-          <button
-            onClick={() => router.push(`/workflows/${workflow.id}/edit`)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90 shrink-0"
-            style={{ background: "#22c55e", color: "white" }}>
-            <ExternalLink size={12} />
-            View Results
-          </button>
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Last Results */}
+            <button
+              onClick={() => router.push(`/workflows/${workflow.id}/edit`)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-90"
+              style={{ background: "rgba(34,197,94,0.12)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.25)" }}>
+              <ExternalLink size={12} />
+              Last Results
+            </button>
 
-          {/* Dismiss / revert to normal row */}
+            {/* Executive Brief */}
+            <button
+              onClick={handleGenerateReport}
+              disabled={reportLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:bg-blue-50 disabled:opacity-40"
+              style={{ color: "#2891DA", border: "1px solid rgba(40,145,218,0.35)", background: "rgba(40,145,218,0.04)" }}>
+              {reportLoading ? <><Loader2 size={12} className="animate-spin" />Generating…</> : <><BookOpen size={12} />Executive Brief</>}
+            </button>
+
+            {/* Run Again */}
+            <button
+              onClick={handleRun}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-90"
+              style={{ background: "#2891DA", color: "white" }}>
+              <Play size={12} fill="white" strokeWidth={0} />
+              Run Again
+            </button>
+          </div>
+
+          {/* Dismiss */}
           <button onClick={() => runStore.dismiss(lastRun!.id)}
             className="p-1.5 rounded-lg transition-colors hover:bg-black/5 shrink-0"
             style={{ color: "var(--text-muted)" }} title="Dismiss">
@@ -306,6 +355,9 @@ function WorkflowListRow({
           </button>
         </div>
 
+        {storyReport && (
+          <StoryReportModal report={storyReport} threadTitle={workflow.name} onClose={() => setStoryReport(null)} />
+        )}
         {showShare && (
           <ShareModal workflowId={workflow.id} workflowName={workflow.name} onClose={() => setShowShare(false)} />
         )}
@@ -337,44 +389,58 @@ function WorkflowListRow({
           )}
         </div>
 
-        {/* Name + description */}
+        {/* Name + meta */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}
             title={workflow.name}>
             {workflow.name}
           </p>
-          {workflow.description && (
-            <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{workflow.description}</p>
-          )}
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {workflow.lastRun} · #{workflow.runCount} runs
+          </p>
         </div>
 
-        {/* Meta */}
-        <p className="text-xs shrink-0 hidden lg:block" style={{ color: "var(--text-muted)", minWidth: 100 }}>
-          {workflow.lastRun} · #{workflow.runCount}
-        </p>
-
         {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          {/* View Last Results */}
+        <div className="flex items-center gap-2 shrink-0">
+
+          {/* Last Results — labeled, green tint */}
           {idleLastResults && (
-            <Link href={`/workflows/${workflow.id}/edit`}
-              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-90"
-              style={{ background: "rgba(34,197,94,0.1)", color: "#16a34a", whiteSpace: "nowrap" }}
+            <button
+              onClick={() => router.push(`/workflows/${workflow.id}/edit`)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-85"
+              style={{ background: "rgba(34,197,94,0.08)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.25)", whiteSpace: "nowrap" }}
               title="View last run results">
-              <ExternalLink size={11} />
+              <ExternalLink size={12} />
               Last Results
-            </Link>
+            </button>
           )}
 
-          {/* Run */}
+          {/* Executive Brief — labeled, blue ghost */}
           <button
-            onClick={handleRun}
-            className="p-1.5 rounded-lg transition-colors hover:bg-blue-50"
-            style={{ color: "#2891DA" }} title="Run workflow">
-            <Play size={14} />
+            onClick={handleGenerateReport}
+            disabled={reportLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:bg-blue-50 disabled:opacity-40"
+            style={{ color: "#2891DA", border: "1px solid rgba(40,145,218,0.35)", background: "rgba(40,145,218,0.04)", whiteSpace: "nowrap" }}
+            title="Generate an AI executive brief">
+            {reportLoading
+              ? <><Loader2 size={12} className="animate-spin" />Generating…</>
+              : <><BookOpen size={12} />Executive Brief</>}
           </button>
 
-          {/* Duplicate */}
+          {/* Run Again — primary blue */}
+          <button
+            onClick={handleRun}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-90"
+            style={{ background: "#2891DA", color: "white", whiteSpace: "nowrap" }}
+            title="Run workflow">
+            <Play size={12} fill="white" strokeWidth={0} />
+            Run Again
+          </button>
+
+          {/* Divider */}
+          <div style={{ width: 1, height: 20, background: "var(--border)", flexShrink: 0 }} />
+
+          {/* Icon-only utility buttons */}
           <button
             onClick={handleDuplicate}
             className="p-1.5 rounded-lg transition-colors hover:bg-black/5"
@@ -383,7 +449,6 @@ function WorkflowListRow({
             {duplicated ? <Check size={14} /> : <Copy size={14} />}
           </button>
 
-          {/* Share */}
           <button
             onClick={() => setShowShare(true)}
             className="p-1.5 rounded-lg transition-colors hover:bg-black/5"
@@ -391,14 +456,12 @@ function WorkflowListRow({
             <Share2 size={14} />
           </button>
 
-          {/* Open in canvas */}
           <Link href={`/workflows/${workflow.id}/edit`}
             className="p-1.5 rounded-lg transition-colors hover:bg-black/5"
             style={{ color: "var(--accent)" }} title="Open in canvas">
             <Edit2 size={14} />
           </Link>
 
-          {/* Delete */}
           {onDelete && (
             <button onClick={() => onDelete(workflow.id)}
               className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
@@ -409,6 +472,9 @@ function WorkflowListRow({
         </div>
       </div>
 
+      {storyReport && (
+        <StoryReportModal report={storyReport} threadTitle={workflow.name} onClose={() => setStoryReport(null)} />
+      )}
       {showShare && (
         <ShareModal
           workflowId={workflow.id}

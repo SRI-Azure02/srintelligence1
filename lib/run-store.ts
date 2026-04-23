@@ -384,6 +384,14 @@ class RunStore {
   }
 
   dismiss(notifId: string): void {
+    // Also clear from _lastRun if this notification is the stored last-run for its workflow
+    const target = this._notifications.find((n) => n.id === notifId);
+    if (target) {
+      const storedLast = this._lastRun.get(target.workflowId);
+      if (storedLast?.id === notifId) {
+        this._lastRun.delete(target.workflowId);
+      }
+    }
     this._notifications = this._notifications.filter((n) => n.id !== notifId);
     this._persistNotifications();
     this._notify();

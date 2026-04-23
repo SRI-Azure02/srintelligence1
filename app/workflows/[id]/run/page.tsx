@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CheckCircle, Clock, Loader, Circle } from "lucide-react";
+import { CheckCircle, Clock, Loader, Circle, BookOpen, Loader2 } from "lucide-react";
 import { workflowRun } from "@/lib/mock-data";
 import { WorkflowRunStep } from "@/lib/types";
+import StoryReportModal from "@/src/components/story/StoryReportModal";
+import type { StoryReport } from "@/src/lib/llm/anthropic";
 
 function StepStatusIcon({ status }: { status: WorkflowRunStep["status"] }) {
   if (status === "done")
@@ -66,6 +68,46 @@ function ClusterResults({ segments }: { segments: Array<{ name: string; plans: s
 export default function WorkflowRunPage() {
   const [steps, setSteps] = useState(workflowRun.steps);
   const [progress3a, setProgress3a] = useState(68);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [storyReport,   setStoryReport]   = useState<StoryReport | null>(null);
+  const [reportError,   setReportError]   = useState<string | null>(null);
+
+  const handleGenerateReport = async () => {
+    if (reportLoading) return;
+    setReportError(null);
+    setReportLoading(true);
+    try {
+      const doneSteps = steps.filter((s) => s.status === "done" && s.result);
+      const messages = doneSteps.map((s) => ({
+        role: "agent",
+        content: `${s.label} results:\n${JSON.stringify(s.result?.data, null, 2)}`,
+        agentActivity: { routedTo: s.label },
+      }));
+
+      const res = await fetch("/api/agent/report", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadTitle: `Workflow Run #${workflowRun.runNumber}`,
+          messages,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Report generation failed" })) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+
+      const data = await res.json() as { report: StoryReport };
+      setStoryReport(data.report);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const doneCount = steps.filter((s) => s.status === "done").length;
 
   // Simulate step 3a completing and 3b starting
   useEffect(() => {
@@ -94,6 +136,37 @@ export default function WorkflowRunPage() {
       style={{ background: "var(--bg-primary)" }}
     >
       <div className="px-6 py-5 max-w-3xl w-full mx-auto flex flex-col gap-5">
+
+        {/* Toolbar */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              Run #{workflowRun.runNumber}
+            </p>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              {workflowRun.startedAt}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={handleGenerateReport}
+              disabled={reportLoading || doneCount === 0}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-opacity hover:opacity-85 disabled:opacity-40"
+              style={{ background: "#2891DA", color: "#ffffff" }}
+              title="Generate an AI executive brief from completed steps"
+            >
+              {reportLoading ? (
+                <><Loader2 size={12} className="animate-spin" />Generating…</>
+              ) : (
+                <><BookOpen size={12} />Executive Brief</>
+              )}
+            </button>
+            {reportError && (
+              <p className="text-xs" style={{ color: "#ef4444" }}>{reportError}</p>
+            )}
+          </div>
+        </div>
+
         {/* Execution status */}
         <div
           className="rounded-xl overflow-hidden"
@@ -234,6 +307,15 @@ export default function WorkflowRunPage() {
 
         <div className="h-4" />
       </div>
+
+      {/* Executive Brief modal */}
+      {storyReport && (
+        <StoryReportModal
+          report={storyReport}
+          threadTitle={`Workflow Run #${workflowRun.runNumber}`}
+          onClose={() => setStoryReport(null)}
+        />
+      )}
     </div>
   );
 }

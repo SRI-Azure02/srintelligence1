@@ -215,7 +215,7 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
           </div>
         )}
 
-        {/* Done — "View Results" fills the body area */}
+        {/* Done — "Last Results" fills the body area */}
         {runStatus === "done" && (
           <button
             onClick={(e) => { e.stopPropagation(); onViewReport?.(); }}
@@ -234,7 +234,7 @@ export default function AgentNode({ id, data, selected }: NodeProps) {
             </span>
             {/* Label */}
             <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color, letterSpacing: "0.01em" }}>View Results</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color, letterSpacing: "0.01em" }}>Last Results</span>
               <span style={{ fontSize: 10, color: "var(--text-muted)" }}>Open analysis report</span>
             </span>
             {/* Arrow */}

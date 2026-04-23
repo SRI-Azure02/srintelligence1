@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useChatHistory } from "@/components/providers/ChatHistoryProvider";
 import { saveThreadMessages, loadThreadMessages } from "@/lib/chat-history";
-import { Pin, AlertCircle, ChevronDown, CheckCircle, Loader2 } from "lucide-react";
+import { Pin, AlertCircle, ChevronDown, CheckCircle, Loader2, BookOpen } from "lucide-react";
 import ChatInput from "@/components/chat/ChatInput";
 import ChatMessageComponent from "@/components/chat/ChatMessage";
 import PlanCard from "@/components/chat/PlanCard";
@@ -14,6 +14,8 @@ import { appendVersion } from "@/lib/workflow-versions";
 import type { DispatchEvent, FormattedResponse, AgentArtifact } from "@/src/types/agent";
 import { parseForecastNarrative } from "@/src/components/artifacts/ForecastArtifact";
 import { fromV2ClusterData, fromResultTable, parseClusteringNarrative } from "@/src/components/artifacts/SegmentationArtifact";
+import StoryReportModal from "@/src/components/story/StoryReportModal";
+import type { StoryReport } from "@/src/lib/llm/anthropic";
 
 // ── Build a fresh empty thread ────────────────────────────────────────────────
 function emptyThread(id: string, title: string): ChatThread {
@@ -504,6 +506,8 @@ export default function ThreadPage() {
   const [savingWf, setSavingWf] = useState(false);
   const [savedWf,  setSavedWf]  = useState(false);
   const [planLoading, setPlanLoading] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [storyReport,   setStoryReport]   = useState<StoryReport | null>(null);
 
   const sessionIdRef    = useRef<string>(threadId);
   const bottomRef       = useRef<HTMLDivElement>(null);
@@ -879,6 +883,32 @@ export default function ThreadPage() {
     }
   };
 
+  // ── Generate Story Report ──────────────────────────────────────────────────
+  const handleGenerateReport = async () => {
+    if (reportLoading || thread.messages.length === 0) return;
+    setReportLoading(true);
+    try {
+      const res = await fetch("/api/agent/report", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadTitle: thread.title || "Analysis Session",
+          messages:    thread.messages,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Report generation failed" })) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json() as { report: StoryReport };
+      setStoryReport(data.report);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full" style={{ background: "var(--bg-primary)" }}>
       {/* Thread header */}
@@ -889,20 +919,38 @@ export default function ThreadPage() {
         <span className="text-sm font-medium truncate max-w-[60%]" style={{ color: "var(--text-primary)" }}>
           {thread.title || "New conversation"}
         </span>
-        <button
-          onClick={handleSaveWorkflow}
-          disabled={savingWf || thread.messages.length === 0}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-90 shrink-0 disabled:opacity-40"
-          style={{ background: savedWf ? "var(--success, #22c55e)" : "#FFA550", color: savedWf ? "#ffffff" : "#1C1A16" }}
-        >
-          {savingWf ? (
-            <><Loader2 size={12} className="animate-spin" />Saving…</>
-          ) : savedWf ? (
-            <><CheckCircle size={12} />Saved!</>
-          ) : (
-            <><Pin size={12} />Save as Workflow</>
-          )}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Generate Report */}
+          <button
+            onClick={handleGenerateReport}
+            disabled={reportLoading || thread.messages.length === 0 || streaming}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-90 disabled:opacity-40"
+            style={{ background: "#2891DA", color: "#ffffff" }}
+            title="Generate an AI executive brief from this conversation"
+          >
+            {reportLoading ? (
+              <><Loader2 size={12} className="animate-spin" />Generating…</>
+            ) : (
+              <><BookOpen size={12} />Executive Brief</>
+            )}
+          </button>
+
+          {/* Save as Workflow */}
+          <button
+            onClick={handleSaveWorkflow}
+            disabled={savingWf || thread.messages.length === 0}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-90 shrink-0 disabled:opacity-40"
+            style={{ background: savedWf ? "var(--success, #22c55e)" : "#FFA550", color: savedWf ? "#ffffff" : "#1C1A16" }}
+          >
+            {savingWf ? (
+              <><Loader2 size={12} className="animate-spin" />Saving…</>
+            ) : savedWf ? (
+              <><CheckCircle size={12} />Saved!</>
+            ) : (
+              <><Pin size={12} />Save as Workflow</>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -996,6 +1044,15 @@ export default function ThreadPage() {
           disabled={streaming || planLoading}
         />
       </div>
+
+      {/* Story Mode report modal */}
+      {storyReport && (
+        <StoryReportModal
+          report={storyReport}
+          threadTitle={thread.title}
+          onClose={() => setStoryReport(null)}
+        />
+      )}
     </div>
   );
 }

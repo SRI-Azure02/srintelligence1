@@ -6,12 +6,15 @@ import {
   Play, Square, Edit2, Share2, Calendar, RefreshCw,
   Layers, TrendingUp, Activity, Cpu, GitFork, GitPullRequestArrow,
   FileText, Zap, Copy, Check, Trash2, Search, ExternalLink,
+  BookOpen, Loader2,
 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { WorkflowCard as WorkflowCardType } from "@/lib/types";
 import { useActiveRun, useLastRun } from "@/lib/use-run-store";
 import { runStore } from "@/lib/run-store";
 import ShareModal from "@/components/workflows/ShareModal";
+import StoryReportModal from "@/src/components/story/StoryReportModal";
+import type { StoryReport } from "@/src/lib/llm/anthropic";
 import { useRouter } from "next/navigation";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -81,8 +84,10 @@ interface WorkflowCardProps {
 
 export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete }: WorkflowCardProps) {
   const router = useRouter();
-  const [showShare,  setShowShare]  = useState(false);
-  const [duplicated, setDuplicated] = useState(false);
+  const [showShare,     setShowShare]     = useState(false);
+  const [duplicated,    setDuplicated]    = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [storyReport,   setStoryReport]   = useState<StoryReport | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const [isTruncated, setIsTruncated] = useState(false);
 
@@ -114,6 +119,30 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
     onDuplicate?.(workflow.id);
     setDuplicated(true);
     setTimeout(() => setDuplicated(false), 1500);
+  };
+
+  const handleGenerateReport = async () => {
+    if (reportLoading) return;
+    setReportLoading(true);
+    try {
+      const messages = workflow.agentChain.map((step) => ({
+        role: "agent",
+        content: `Agent: ${step.label}\nType: ${step.type}\nPrompt: ${step.prompt ?? "—"}`,
+        agentActivity: { routedTo: step.label },
+      }));
+      const res = await fetch("/api/agent/report", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadTitle: workflow.name, messages }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { report: StoryReport };
+      setStoryReport(data.report);
+    } catch (err) {
+      console.error("[ExecutiveBrief]", err);
+    } finally {
+      setReportLoading(false);
+    }
   };
 
   // ── Running-state derived values ───────────────────────────────────────────
@@ -239,31 +268,17 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
           <>
             <ChainBadge chain={workflow.agentChain} />
 
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
-                  {workflow.schedule === "auto" ? (
-                    <><RefreshCw size={11} />Auto — {workflow.scheduleLabel}</>
-                  ) : (
-                    <><Calendar size={11} />Manual-Update</>
-                  )}
-                </div>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  Last run: {displayLastRun} · #{displayRunCount} runs
-                </p>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+                {workflow.schedule === "auto" ? (
+                  <><RefreshCw size={11} />Auto — {workflow.scheduleLabel}</>
+                ) : (
+                  <><Calendar size={11} />Manual-Update</>
+                )}
               </div>
-
-              {/* View Last Results — only when last run has real artifacts */}
-              {lastRun?.status === "done" && Object.keys(lastRun.nodeArtifacts ?? {}).length > 0 && (
-                <button
-                  onClick={() => router.push(`/workflows/${workflow.id}/edit`)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-80 shrink-0"
-                  style={{ background: "rgba(34,197,94,0.1)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.2)" }}
-                  title="View last run results">
-                  <ExternalLink size={11} />
-                  Last Results
-                </button>
-              )}
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Last run: {displayLastRun} · #{displayRunCount} runs
+              </p>
             </div>
           </>
         )}
@@ -282,7 +297,9 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
           </div>
         ) : (
           /* Idle: full button set */
-          <div className="flex items-stretch gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+          <div className="flex flex-col gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+            {/* Primary action row */}
+            <div className="flex items-stretch gap-2">
             <div className="flex gap-2">
               <button
                 onClick={handleRun}
@@ -328,6 +345,37 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
                 Share
               </button>
             </div>
+            </div>{/* end primary row */}
+
+            {/* Secondary row: Last Results + Executive Brief */}
+            <div className="flex items-center gap-2">
+              {lastRun?.status === "done" && Object.keys(lastRun.nodeArtifacts ?? {}).length > 0 && (
+                <button
+                  onClick={() => router.push(`/workflows/${workflow.id}/edit`)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors hover:opacity-85 shrink-0"
+                  style={{ background: "rgba(34,197,94,0.08)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.25)" }}
+                  title="View last run results"
+                >
+                  <ExternalLink size={12} />
+                  Last Results
+                </button>
+              )}
+              <button
+                onClick={handleGenerateReport}
+                disabled={reportLoading}
+                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all hover:bg-blue-50 disabled:opacity-40"
+                style={{
+                  color: "#2891DA",
+                  border: "1px solid rgba(40,145,218,0.35)",
+                  background: "rgba(40,145,218,0.04)",
+                }}
+                title="Generate an AI executive brief from this workflow"
+              >
+                {reportLoading
+                  ? <><Loader2 size={12} className="animate-spin" />Generating…</>
+                  : <><BookOpen size={12} />Executive Brief</>}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -337,6 +385,14 @@ export default function WorkflowCardComponent({ workflow, onDuplicate, onDelete 
           workflowId={workflow.id}
           workflowName={workflow.name}
           onClose={() => setShowShare(false)}
+        />
+      )}
+
+      {storyReport && (
+        <StoryReportModal
+          report={storyReport}
+          threadTitle={workflow.name}
+          onClose={() => setStoryReport(null)}
         />
       )}
     </>

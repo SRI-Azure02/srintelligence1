@@ -441,3 +441,95 @@ export async function generatePlan(params: {
   if (steps.length < 1) throw new Error('Plan must have at least one step');
   return { steps };
 }
+
+// ---------------------------------------------------------------------------
+// generateStoryReport
+// ---------------------------------------------------------------------------
+
+export interface StoryReport {
+  title: string;
+  executiveSummary: string;
+  keyFindings: string[];
+  sections: Array<{ heading: string; body: string }>;
+  recommendations: string[];
+  methodology: string;
+  agentsUsed: string[];
+}
+
+/**
+ * Converts a series of agent analysis results into a structured executive
+ * report suitable for C-suite stakeholders. Returns a JSON-shaped report
+ * that can be rendered in the Story Mode modal and exported to PDF / PPTX.
+ */
+export async function generateStoryReport(params: {
+  threadTitle: string;
+  agentResults: Array<{ agentName: string; narrative: string }>;
+}): Promise<StoryReport> {
+  const { threadTitle, agentResults } = params;
+
+  const systemPrompt = [
+    'You are an expert business intelligence analyst writing executive reports for pharma/life sciences stakeholders.',
+    'Given a series of AI-generated analysis results from different analytical agents, produce a comprehensive executive report.',
+    '',
+    'Return a JSON object with this exact shape (no markdown fences, no explanation):',
+    '{',
+    '  "title": "<concise executive report title derived from the analysis>",',
+    '  "executiveSummary": "<2-3 paragraph executive summary covering the overall narrative and business impact>",',
+    '  "keyFindings": ["<specific metric-driven finding>", ...],',
+    '  "sections": [{ "heading": "<section title>", "body": "<detailed 1-3 paragraph analysis>" }, ...],',
+    '  "recommendations": ["<concrete, measurable action>", ...],',
+    '  "methodology": "<brief description of analytical methods and data sources used>",',
+    '  "agentsUsed": ["<agent name>", ...]',
+    '}',
+    '',
+    'Guidelines:',
+    '  1. Write for C-suite and senior commercial leadership — clear, decisive, action-oriented.',
+    '  2. Extract specific metrics and figures from the analyses — avoid generalities.',
+    '  3. Each section in "sections" maps to a distinct analytical result or insight cluster.',
+    '  4. Produce 5–7 keyFindings and 3–5 recommendations.',
+    '  5. Recommendations must be concrete and measurable — not vague suggestions.',
+    '  6. Use pharma/life sciences business terminology where appropriate (TRx, NBRx, market share, etc.).',
+    '  7. Respond with valid JSON only.',
+  ].join('\n');
+
+  const agentSummaries = agentResults
+    .map((r, i) => `--- Analysis ${i + 1}: ${r.agentName} ---\n${r.narrative}`)
+    .join('\n\n');
+
+  const userContent = `Thread context: "${threadTitle}"\n\nAnalysis results:\n${agentSummaries}`;
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 3000,
+    temperature: 0.3,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userContent }],
+  });
+
+  const firstBlock = response.content[0];
+  if (firstBlock.type !== 'text') {
+    throw new Error('Unexpected response type from story report generation');
+  }
+
+  let parsed: unknown;
+  try {
+    const cleaned = firstBlock.text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    throw new Error(`Failed to parse story report JSON: ${String(err)}`);
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  return {
+    title:            typeof obj.title === 'string'            ? obj.title            : threadTitle,
+    executiveSummary: typeof obj.executiveSummary === 'string' ? obj.executiveSummary : '',
+    keyFindings:      Array.isArray(obj.keyFindings)           ? (obj.keyFindings as string[]) : [],
+    sections:         Array.isArray(obj.sections)              ? (obj.sections as StoryReport['sections']) : [],
+    recommendations:  Array.isArray(obj.recommendations)       ? (obj.recommendations as string[]) : [],
+    methodology:      typeof obj.methodology === 'string'      ? obj.methodology      : '',
+    agentsUsed:       Array.isArray(obj.agentsUsed)            ? (obj.agentsUsed as string[]) : [],
+  };
+}
