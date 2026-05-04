@@ -532,18 +532,25 @@ export default function ThreadPage() {
       setThread({ id: threadId, title: saved.title, date: new Date().toLocaleDateString(), messages: saved.messages });
       setSqlMap(saved.sqlMap ?? {});
     } else {
-      // No saved messages — at least restore the title from the left-rail context
+      // No saved messages — reset thread state fully so stale messages from a prior
+      // thread never linger while the new thread's ID is active.
       const knownTitle = threads.find((t) => t.id === threadId)?.title;
-      if (knownTitle) setThread((prev) => ({ ...prev, title: knownTitle }));
+      hasPersistedRef.current = false;
+      titleRef.current = knownTitle ?? "New conversation";
+      setThread({ id: threadId, title: knownTitle ?? "New conversation", date: new Date().toLocaleDateString(), messages: [] });
+      setSqlMap({});
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
-  // Persist messages to localStorage whenever they change
+  // Persist messages to localStorage whenever they change.
+  // Guard: only save when thread.id matches threadId — prevents cross-contamination
+  // when React fires this effect with the new threadId but the old thread state.
   useEffect(() => {
     if (thread.messages.length === 0) return;
-    saveThreadMessages(threadId, thread.title, thread.messages, sqlMap);
-  }, [thread.messages, thread.title, sqlMap, threadId]);
+    if (thread.id !== threadId) return;
+    saveThreadMessages(thread.id, thread.title, thread.messages, sqlMap);
+  }, [thread.id, thread.messages, thread.title, sqlMap, threadId]);
 
   // Fire pending query from home page
   useEffect(() => {
