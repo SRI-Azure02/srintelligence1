@@ -990,6 +990,63 @@ function buildClusterNarrative(
 }
 
 // ---------------------------------------------------------------------------
+// CAUSAL auto-cohort helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the required context fields absent from a causal-inference message.
+ * Currently only checks for a timeframe, because data only runs through H2 2025
+ * and an absent timeframe causes the agent to generate SQL for the current year
+ * (2026) → zero rows.
+ */
+function missingCausalContext(message: string): string[] {
+  const missing: string[] = [];
+
+  const hasTimeframe =
+    /\b(202[0-9]|19\d{2}|Q[1-4]|H[12]|first half|second half|last year|prior year|ytd|year[\s-]to[\s-]date|monthly|quarterly|annual(ly)?)\b/i.test(message) ||
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b/i.test(message);
+
+  if (!hasTimeframe) missing.push('timeframe');
+  return missing;
+}
+
+/**
+ * Build a conversational clarification response that tells the user exactly
+ * what required context is missing from their causal-inference request.
+ */
+function buildCausalClarificationPrompt(missing: string[]): string {
+  const parts: string[] = [
+    'To run causal analysis I need a bit more context:',
+  ];
+  if (missing.includes('timeframe')) {
+    parts.push(
+      '\n**Time period** — please specify a comparison window, for example:' +
+      '\n- H1 vs H2 2025' +
+      '\n- Q3 vs Q4 2025' +
+      '\n- Jan–Jun 2025 vs Jul–Dec 2025' +
+      '\n\nThe dataset covers through H2 2025; queries without an explicit date range default to the current year and return no results.',
+    );
+  }
+  return parts.join('\n');
+}
+
+/**
+ * Given a user message with sufficient context, synthesise a Cortex Analyst
+ * question whose result (SQL + columns) becomes the auto-cohort for the causal
+ * agent when no prior analyst turn exists in the session.
+ *
+ * Strips causal-specific verbs so Cortex Analyst returns trend/metric data
+ * rather than attempting to answer the causal question itself.
+ */
+function synthesizeCausalCohortQuestion(message: string): string {
+  const stripped = message
+    .replace(/\b(caus(?:e|ed|al|ing)|driv(?:e|en|er|ers|ing)|impact(?:ed|ing)?|attribut(?:e|ed|ion)|explain(?:s|ed|ing)?|what\s+drove|what\s+caused)\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return `Show prescription volume, market share, and key metrics by month for ${stripped || 'all products'}. Include the full timeframe specified.`;
+}
+
+// ---------------------------------------------------------------------------
 // RouteDispatcher
 // ---------------------------------------------------------------------------
 
@@ -1200,6 +1257,51 @@ export class RouteDispatcher {
           ?.content;
         const isForecastIntent = /^FORECAST_/.test(intent) || intent === 'FORECAST_COMPARE' as string;
         const isCausalIntent = /^CAUSAL/.test(intent);
+
+        // ── Auto-cohort / clarification gate for CAUSAL without prior SQL ────
+        // On Vercel (stateless), sessionStore resets on cold starts so
+        // getLastAnalystResult() returns undefined.  Rather than silently
+        // sending the agent a context-free message (which produces zero rows),
+        // we either:
+        //   a) ask the user for the missing required field (timeframe), or
+        //   b) auto-synthesise a cohort via Cortex Analyst when the message
+        //      already has enough definition (drug + timeframe + population).
+        let autoCohortSQL: string | undefined;
+        let autoCohortCols: string[] | undefined;
+        let skipAgentCall = false;
+
+        if (isCausalIntent && !lastSQL) {
+          const missing = missingCausalContext(message);
+          if (missing.length > 0) {
+            result = buildAgentResult(
+              '', intent, agentName,
+              buildCausalClarificationPrompt(missing),
+              undefined, null,
+              Date.now() - startMs, randomUUID(),
+            );
+            skipAgentCall = true;
+          } else {
+            const cohortQ = synthesizeCausalCohortQuestion(message);
+            console.log(`[CAUSAL] No prior SQL — auto-cohort question: "${cohortQ.slice(0, 120)}"`);
+            try {
+              const autoResp = await callCortexAnalyst({
+                question: normalizeUserQuestion(cohortQ),
+                semanticView: baseInput.semanticView.fullyQualifiedName,
+                signal,
+              });
+              if (autoResp.sql && !autoResp.error) {
+                autoCohortSQL = autoResp.sql;
+                autoCohortCols = autoResp.columns;
+                console.log(`[CAUSAL] Auto-cohort SQL obtained (${autoCohortCols?.length ?? 0} cols).`);
+              } else {
+                console.warn(`[CAUSAL] Auto-cohort analyst failed: ${autoResp.error ?? 'no SQL returned'}`);
+              }
+            } catch (cohortErr) {
+              console.warn(`[CAUSAL] Auto-cohort threw: ${cohortErr instanceof Error ? cohortErr.message : String(cohortErr)}`);
+            }
+          }
+        }
+
         const clusterInfo = this.context.getLastClusterMeta?.();
 
         // ── Cluster context for forecast / causal ─────────────────────────
@@ -1379,8 +1481,8 @@ export class RouteDispatcher {
         }
 
         const enriched = enrichMessage(resolvedMessage, intent, {
-          priorSQL: lastSQL ?? undefined,
-          priorColumns: priorAnalyst?.columns,
+          priorSQL: lastSQL ?? autoCohortSQL ?? undefined,
+          priorColumns: priorAnalyst?.columns ?? autoCohortCols,
           priorNarrative: lastAnalystNarrative,
           clusterInfo: effectiveClusterInfo,
           clusterSummary,
@@ -1391,30 +1493,32 @@ export class RouteDispatcher {
             ? parseForecastHorizon(message)
             : undefined,
         });
-        // Derive the intent family prefix (e.g. "CAUSAL", "FORECAST", "MTREE")
-        // so buildAgentMessages can filter out unrelated assistant turns from
-        // prior runs (e.g. clustering narrative confusing the causal agent).
-        const intentFamily = intent.includes('_')
-          ? intent.split('_')[0]
-          : intent;
-        const agentMessages = this.buildAgentMessages(enriched, intentFamily);
+        if (!skipAgentCall) {
+          // Derive the intent family prefix (e.g. "CAUSAL", "FORECAST", "MTREE")
+          // so buildAgentMessages can filter out unrelated assistant turns from
+          // prior runs (e.g. clustering narrative confusing the causal agent).
+          const intentFamily = intent.includes('_')
+            ? intent.split('_')[0]
+            : intent;
+          const agentMessages = this.buildAgentMessages(enriched, intentFamily);
 
-        const lineageId = randomUUID();
-        console.time(`5_CORTEX_AGENT:${reqId}`);
-        const cortexResponse = await callCortexAgent(cortexRef, agentMessages, signal);
-        console.timeEnd(`5_CORTEX_AGENT:${reqId}`);
+          const lineageId = randomUUID();
+          console.time(`5_CORTEX_AGENT:${reqId}`);
+          const cortexResponse = await callCortexAgent(cortexRef, agentMessages, signal);
+          console.timeEnd(`5_CORTEX_AGENT:${reqId}`);
 
-        result = buildAgentResult(
-          cortexRef,
-          intent,
-          agentName,
-          cortexResponse.text,
-          cortexResponse.sql,
-          cortexResponse.data,
-          cortexResponse.executionTimeMs,
-          lineageId,
-          cortexResponse.error,
-        );
+          result = buildAgentResult(
+            cortexRef,
+            intent,
+            agentName,
+            cortexResponse.text,
+            cortexResponse.sql,
+            cortexResponse.data,
+            cortexResponse.executionTimeMs,
+            lineageId,
+            cortexResponse.error,
+          );
+        }
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
