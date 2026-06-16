@@ -1267,7 +1267,6 @@ export class RouteDispatcher {
         //   b) auto-synthesise a cohort via Cortex Analyst when the message
         //      already has enough definition (drug + timeframe + population).
         let autoCohortSQL: string | undefined;
-        let autoCohortCols: string[] | undefined;
         let skipAgentCall = false;
 
         if (isCausalIntent && !lastSQL) {
@@ -1291,8 +1290,7 @@ export class RouteDispatcher {
               });
               if (autoResp.sql && !autoResp.error) {
                 autoCohortSQL = autoResp.sql;
-                autoCohortCols = autoResp.columns;
-                console.log(`[CAUSAL] Auto-cohort SQL obtained (${autoCohortCols?.length ?? 0} cols).`);
+                console.log(`[CAUSAL] Auto-cohort SQL obtained.`);
               } else {
                 console.warn(`[CAUSAL] Auto-cohort analyst failed: ${autoResp.error ?? 'no SQL returned'}`);
               }
@@ -1482,7 +1480,7 @@ export class RouteDispatcher {
 
         const enriched = enrichMessage(resolvedMessage, intent, {
           priorSQL: lastSQL ?? autoCohortSQL ?? undefined,
-          priorColumns: priorAnalyst?.columns ?? autoCohortCols,
+          priorColumns: priorAnalyst?.columns,
           priorNarrative: lastAnalystNarrative,
           clusterInfo: effectiveClusterInfo,
           clusterSummary,
