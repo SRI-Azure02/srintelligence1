@@ -156,14 +156,31 @@ Documents can now be uploaded, processed, and stored with all metadata and embed
 
 ---
 
-## Phase 4: Chat Integration (2-3 days)
-**Status:** Not started
+## Phase 4: Chat Integration ✅ COMPLETE
 
-### Planned Deliverables
-- [ ] enrichMessage() extension for document context
-- [ ] Document context injection into agent prompts
-- [ ] Fail-open error handling (retrieval never blocks chat)
-- [ ] Integration tests
+### Deliverables
+- [x] **Chat Integration Layer** — `src/lib/documents/chat-integration.ts`
+  - Document context formatting with citations
+  - Citation extraction and validation
+  - System instructions for agents to use documents
+  - Fail-open error handling (retrieval never blocks chat)
+  
+- [x] **Enrichment Integration** — `src/lib/documents/enrichment-integration.ts`
+  - Extended enrichMessage() with document context injection
+  - Intent-based auto-detection of when to use documents
+  - Backward-compatible with existing enrichment
+  
+- [x] **Comprehensive Tests** — `src/lib/documents/chat-integration.test.ts`
+  - 31 test cases covering:
+    - Document context building
+    - Citation extraction (single, multiple, invalid)
+    - Citation validation
+    - Context block formatting
+    - Enrichment with documents
+    - Intent-based enabling
+    - Auto-enrichment logic
+    - End-to-end scenarios
+    - Fail-open behavior
 
 ---
 
