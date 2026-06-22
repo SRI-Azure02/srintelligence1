@@ -103,6 +103,11 @@ export function extractKeywords(query: string): string[] {
     "be",
     "been",
     "being",
+    "not",
+    "no",
+    "without",
+    "avoid",
+    "except",
   ]);
 
   return query
