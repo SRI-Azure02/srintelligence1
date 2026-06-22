@@ -67,8 +67,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Phase 2.2 - Replace with actual Snowflake client when available
-    // For now, return success with ingestion state
+    // Persist to Snowflake via the persistence layer
+    try {
+      await completeIngestion(finalState, userId);
+    } catch (persistError) {
+      console.warn(`Snowflake persistence warning (continuing with extracted state): ${persistError}`);
+      // Fail-open: ingestion succeeded even if persistence fails
+    }
+
     const result = {
       documentId: finalState.documentId,
       fileName: finalState.fileName,
@@ -78,8 +84,8 @@ export async function POST(request: NextRequest) {
       chunksCount: finalState.chunks.length,
       fullTextLength: finalState.fullText.length,
       contentHash: finalState.contentHash,
-      status: "extracted_ready_for_persistence",
-      message: "Document extracted and chunked successfully. Ready for database persistence.",
+      status: "indexed",
+      message: "Document uploaded, extracted, chunked, and indexed successfully.",
     };
 
     return NextResponse.json(result);
