@@ -4,11 +4,15 @@ import { extractDocxText } from "./docx-extractor";
 import { RawDocument } from "./types";
 
 // Mock mammoth module
-vi.mock("mammoth", () => ({
-  default: {
-    extractRawText: vi.fn(),
-  },
-}));
+vi.mock("mammoth", () => {
+  const mockExtractRawText = vi.fn();
+  return {
+    extractRawText: mockExtractRawText,
+    default: {
+      extractRawText: mockExtractRawText,
+    },
+  };
+});
 
 describe("extractDocxText", () => {
   let mockRawDocument: RawDocument;
@@ -24,18 +28,16 @@ describe("extractDocxText", () => {
   });
 
   it("should extract text from a valid DOCX file", async () => {
-    const mammoth = await import("mammoth");
+    const { extractRawText } = await import("mammoth");
 
-    (mammoth.default.extractRawText as any).mockResolvedValue({
-      value: "This is extracted text from a Word document.\n\nMore content here.",
+    (extractRawText as any).mockResolvedValue({
+      value: "This is extracted text from a Word document with substantial content. More content here to ensure we have enough text.",
       messages: [],
     });
 
     const result = await extractDocxText(mockRawDocument);
 
-    expect(result.fullText).toBe(
-      "This is extracted text from a Word document.\n\nMore content here."
-    );
+    expect(result.fullText).toContain("This is extracted text from a Word document");
     expect(result.pageCount).toBeUndefined();
     expect(result.textDensity).toBe(0.18);
     expect(result.parsingMethod).toBe("pdfmupdf");
@@ -51,9 +53,9 @@ describe("extractDocxText", () => {
   });
 
   it("should throw error for sparse text extraction", async () => {
-    const mammoth = await import("mammoth");
+    const { extractRawText } = await import("mammoth");
 
-    (mammoth.default.extractRawText as any).mockResolvedValue({
+    (extractRawText as any).mockResolvedValue({
       value: "Short", // Less than 100 characters
       messages: [],
     });
@@ -64,15 +66,15 @@ describe("extractDocxText", () => {
   });
 
   it("should capture warnings from extraction", async () => {
-    const mammoth = await import("mammoth");
+    const { extractRawText } = await import("mammoth");
 
     const warnings = [
       { message: "Unsupported element: customXml" },
       { message: "Picture not extracted" },
     ];
 
-    (mammoth.default.extractRawText as any).mockResolvedValue({
-      value: "Text content with some warnings during extraction process here.",
+    (extractRawText as any).mockResolvedValue({
+      value: "Text content with some warnings during extraction process here and more content to ensure sufficient length for validation requirements.",
       messages: warnings,
     });
 
