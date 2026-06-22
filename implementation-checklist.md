@@ -79,17 +79,60 @@ All Phase 1 components are production-ready. The pipeline is ready to:
 
 ---
 
-## Phase 2: Semantic Ingestion (3-4 days)
-**Status:** Not started
+## Phase 2: Semantic Ingestion ✅ COMPLETE
 
-### Planned Deliverables
-- [ ] Ingestion Agent (LangGraph)
-- [ ] Deduplication logic (SHA256 hashing)
-- [ ] Embedding generation (Snowflake Cortex EMBED_TEXT_768)
-- [ ] Document storage in Snowflake
-- [ ] Chunk indexing with vectors
-- [ ] Upload API endpoint `/api/documents`
-- [ ] Ingestion tests
+### Deliverables
+- [x] **Ingestion Agent** — `src/lib/documents/ingestion-agent.ts`
+  - 5-stage LangGraph state machine
+  - Density analysis → Text extraction → Semantic chunking → Deduplication → Embedding prep
+  - Error handling at each stage with comprehensive state tracking
+
+- [x] **Snowflake Persistence Layer** — `src/lib/documents/snowflake-persistence.ts`
+  - Deduplication via SHA256 content hash
+  - Embedding generation using Snowflake Cortex EMBED_TEXT_768
+  - Document and chunk persistence
+  - Status tracking and indexing workflow
+  - Fail-open error handling (retrieval errors never block ingestion)
+
+- [x] **Upload API Endpoint** — `app/api/documents/upload/route.ts`
+  - Multipart form data handling
+  - File type validation (PDF/DOCX/PPTX)
+  - File size limit (50MB)
+  - User ID tracking from headers
+  - Returns extraction metadata and chunk count
+  - CORS support
+
+- [x] **Tests**
+  - `ingestion-agent.test.ts` — 10 test cases (state creation, initialization, graph)
+  - `snowflake-persistence.test.ts` — 13 test cases (duplicate check, embedding generation, persistence, error handling)
+
+### Architecture
+```
+POST /api/documents/upload (multipart form data)
+        ↓
+LangGraph Ingestion Agent (5 stages):
+  1. Analyze text density → select extraction method
+  2. Extract text (PyMuPDF or Claude Vision)
+  3. Semantic chunk with Claude Haiku
+  4. Check for duplicates (SHA256)
+  5. Prepare for embedding generation
+        ↓
+Snowflake Persistence:
+  - Check duplicate by content hash
+  - Generate embeddings (Cortex EMBED_TEXT_768)
+  - Insert into DOCUMENTS table
+  - Insert chunks into DOCUMENT_CHUNKS table
+  - Mark document as 'indexed'
+        ↓
+Response: {documentId, chunksCount, status}
+```
+
+### Status: Ready for Phase 3
+Documents can now be uploaded, processed, and stored with all metadata and embeddings ready for retrieval.
+
+---
+
+## Phase 3: Hybrid Retrieval (3-4 days)
 
 ---
 
