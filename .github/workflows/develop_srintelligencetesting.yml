@@ -53,9 +53,17 @@ jobs:
           tenant-id:       ${{ secrets.AZUREAPPSERVICE_TENANTID_8B987A8A09FD4D2794EB4F54687D9045 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_C056E7739D05424FA0D30AC3613CB85F }}
 
+      - name: Configure App Service settings
+        run: |
+          az webapp config appsettings set \
+            --name SRIntelligencetesting \
+            --resource-group SRIntelligence_group \
+            --settings WEBSITES_PORT=3000 NODE_ENV=production
+
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'SRIntelligencetesting'
           slot-name: 'Production'
           package: .
+          startup-command: 'npm start'
