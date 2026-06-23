@@ -3,8 +3,8 @@ name: Build & Deploy to Azure Container Apps
 on:
   push:
     branches:
-      - main      # production deploy
-      - develop   # preview deploy
+      - develop   # preview/staging deploy only
+      # main is handled by main_srintelligence.yml (uses existing Azure OIDC credentials)
 
 env:
   REGISTRY:       ${{ secrets.ACR_LOGIN_SERVER }}   # e.g. srintelligence.azurecr.io
