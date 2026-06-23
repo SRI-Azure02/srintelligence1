@@ -1,0 +1,19 @@
+name: Hourly news scrape (replaces Vercel cron)
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # every hour, same as vercel.json
+  workflow_dispatch:       # allow manual trigger
+
+jobs:
+  trigger-scrape:
+    name: Trigger /api/news/scrape
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Call scrape endpoint
+        run: |
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.CONTAINER_APP_URL }}/api/news/scrape"
