@@ -1,18 +1,4 @@
-# Build and deploy to Azure Container Apps — production (main branch)
-# Uses the OIDC credentials Azure Portal already configured for this app.
-#
-# Required GitHub Secrets (set by Azure Portal — already exist):
-#   AZUREAPPSERVICE_CLIENTID_FFEE4CD35731471ABDD35C4476014E3A
-#   AZUREAPPSERVICE_TENANTID_EE889F08D88D47CBA02B87AC4723C535
-#   AZUREAPPSERVICE_SUBSCRIPTIONID_D8397C72EAF847028FD73F7EB2CD8798
-#
-# Additional secrets to add in GitHub:
-#   ACR_LOGIN_SERVER          ← e.g. srintelligence.azurecr.io
-#   ACR_NAME                  ← e.g. srintelligence
-#   AZURE_RESOURCE_GROUP      ← your resource group name
-#   AZURE_CONTAINER_APP_NAME  ← your production Container App name
-
-name: Build and deploy to Azure Container Apps - SRIntelligence (production)
+name: Build and deploy Node.js app to Azure Web App - SRIntelligence
 
 on:
   push:
@@ -20,65 +6,56 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  REGISTRY:       ${{ secrets.ACR_LOGIN_SERVER }}
-  IMAGE_NAME:     srintelligence
-  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
-  CONTAINER_APP:  ${{ secrets.AZURE_CONTAINER_APP_NAME }}
-
 jobs:
-  test:
-    name: Run tests
+  build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      # test:ci uses vitest run (exits cleanly — no watch mode, safe for CI)
-      - run: npm run test:ci
-
-  build-and-deploy:
-    name: Build image & deploy to Container Apps
-    runs-on: ubuntu-latest
-    needs: test
     permissions:
-      id-token: write   # required for OIDC login
       contents: read
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to Azure (OIDC)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install, build, and test
+        run: |
+          npm ci
+          npm run build
+          npm run test:ci
+
+      - name: Upload artifact for deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-app
+          path: .
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: node-app
+
+      - name: Login to Azure
         uses: azure/login@v2
         with:
           client-id:       ${{ secrets.AZUREAPPSERVICE_CLIENTID_FFEE4CD35731471ABDD35C4476014E3A }}
           tenant-id:       ${{ secrets.AZUREAPPSERVICE_TENANTID_EE889F08D88D47CBA02B87AC4723C535 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_D8397C72EAF847028FD73F7EB2CD8798 }}
 
-      - name: Log in to Container Registry
-        run: az acr login --name ${{ secrets.ACR_NAME }}
-
-      - name: Set image tag
-        id: tag
-        run: |
-          SHA=$(echo $GITHUB_SHA | head -c7)
-          echo "tag=main-$SHA" >> $GITHUB_OUTPUT
-
-      - name: Build & push Docker image
-        run: |
-          docker build \
-            -t $REGISTRY/$IMAGE_NAME:${{ steps.tag.outputs.tag }} \
-            -t $REGISTRY/$IMAGE_NAME:latest \
-            .
-          docker push $REGISTRY/$IMAGE_NAME:${{ steps.tag.outputs.tag }}
-          docker push $REGISTRY/$IMAGE_NAME:latest
-
-      - name: Deploy to Azure Container Apps
-        run: |
-          az containerapp update \
-            --name "$CONTAINER_APP" \
-            --resource-group "$RESOURCE_GROUP" \
-            --image "$REGISTRY/$IMAGE_NAME:${{ steps.tag.outputs.tag }}"
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'SRIntelligence'
+          slot-name: 'Production'
+          package: .

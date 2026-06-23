@@ -1,18 +1,4 @@
-# Build and deploy to Azure Container Apps — staging (develop branch)
-# Uses the OIDC credentials Azure Portal already configured for SRIntelligencetesting.
-#
-# Required GitHub Secrets (set by Azure Portal — already exist):
-#   AZUREAPPSERVICE_CLIENTID_C401D9BB780D49D39BD59EA4811F9581
-#   AZUREAPPSERVICE_TENANTID_8B987A8A09FD4D2794EB4F54687D9045
-#   AZUREAPPSERVICE_SUBSCRIPTIONID_C056E7739D05424FA0D30AC3613CB85F
-#
-# Additional secrets to add in GitHub:
-#   ACR_LOGIN_SERVER                ← e.g. srintelligence.azurecr.io  (can share with prod)
-#   ACR_NAME                        ← e.g. srintelligence
-#   AZURE_RESOURCE_GROUP_TESTING    ← resource group for testing environment
-#   AZURE_CONTAINER_APP_NAME_TESTING← your staging Container App name (SRIntelligencetesting)
-
-name: Build and deploy to Azure Container Apps - SRIntelligencetesting (staging)
+name: Build and deploy Node.js app to Azure Web App - SRIntelligencetesting
 
 on:
   push:
@@ -20,65 +6,56 @@ on:
       - develop
   workflow_dispatch:
 
-env:
-  REGISTRY:       ${{ secrets.ACR_LOGIN_SERVER }}
-  IMAGE_NAME:     srintelligence
-  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP_TESTING }}
-  CONTAINER_APP:  ${{ secrets.AZURE_CONTAINER_APP_NAME_TESTING }}
-
 jobs:
-  test:
-    name: Run tests
+  build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      # test:ci uses vitest run (exits cleanly — no watch mode, safe for CI)
-      - run: npm run test:ci
-
-  build-and-deploy:
-    name: Build image & deploy to staging Container App
-    runs-on: ubuntu-latest
-    needs: test
     permissions:
-      id-token: write   # required for OIDC login
       contents: read
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to Azure (OIDC)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install, build, and test
+        run: |
+          npm ci
+          npm run build
+          npm run test:ci
+
+      - name: Upload artifact for deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-app
+          path: .
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: node-app
+
+      - name: Login to Azure
         uses: azure/login@v2
         with:
           client-id:       ${{ secrets.AZUREAPPSERVICE_CLIENTID_C401D9BB780D49D39BD59EA4811F9581 }}
           tenant-id:       ${{ secrets.AZUREAPPSERVICE_TENANTID_8B987A8A09FD4D2794EB4F54687D9045 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_C056E7739D05424FA0D30AC3613CB85F }}
 
-      - name: Log in to Container Registry
-        run: az acr login --name ${{ secrets.ACR_NAME }}
-
-      - name: Set image tag
-        id: tag
-        run: |
-          SHA=$(echo $GITHUB_SHA | head -c7)
-          echo "tag=develop-$SHA" >> $GITHUB_OUTPUT
-
-      - name: Build & push Docker image
-        run: |
-          docker build \
-            -t $REGISTRY/$IMAGE_NAME:${{ steps.tag.outputs.tag }} \
-            -t $REGISTRY/$IMAGE_NAME:develop-latest \
-            .
-          docker push $REGISTRY/$IMAGE_NAME:${{ steps.tag.outputs.tag }}
-          docker push $REGISTRY/$IMAGE_NAME:develop-latest
-
-      - name: Deploy to staging Azure Container App
-        run: |
-          az containerapp update \
-            --name "$CONTAINER_APP" \
-            --resource-group "$RESOURCE_GROUP" \
-            --image "$REGISTRY/$IMAGE_NAME:${{ steps.tag.outputs.tag }}"
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'SRIntelligencetesting'
+          slot-name: 'Production'
+          package: .
