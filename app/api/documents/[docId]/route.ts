@@ -7,11 +7,13 @@ import { executeSQL } from "@/src/lib/snowflake/sql-api";
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { docId: string } }
+  // { params }: { params: { docId: string } }
+  { params }: { params: Promise<{ docId: string }> }
 ) {
   try {
     const userId = request.headers.get("x-user-id") || "anonymous";
-    const { docId } = params;
+    // const { docId } = params;
+    const { docId } = await params;
 
     if (!docId || typeof docId !== "string") {
       return NextResponse.json(
