@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { StateGraph } from "@langchain/langgraph";
+// import { StateGraph } from "@langchain/langgraph";
 import crypto from "crypto";
 import { Buffer } from "buffer";
 import { analyzeTextDensity } from "./density-analyzer";
@@ -194,24 +194,47 @@ async function generateEmbeddings(
 /**
  * Create the LangGraph state machine for ingestion
  */
+
 export async function createIngestionGraph() {
-  const graph = new StateGraph(IngestionState);
-
-  graph
-    .addNode("analyze_density", analyzeDensity)
-    .addNode("extract_text", extractText)
-    .addNode("semantic_chunk", performSemanticChunking)
-    .addNode("check_duplicate", checkDuplicate)
-    .addNode("generate_embeddings", generateEmbeddings);
-
-  graph
-    .addEdge("analyze_density", "extract_text")
-    .addEdge("extract_text", "semantic_chunk")
-    .addEdge("semantic_chunk", "check_duplicate")
-    .addEdge("check_duplicate", "generate_embeddings");
-
-  return graph.compile();
+  // NOTE: Previously used LangGraph's StateGraph, but that API changed and is
+  // incompatible with the installed @langchain/langgraph version. The graph was
+  // purely linear, so this runs the same steps in the same order.
+  // TODO: migrate back to StateGraph (Annotation.Root API) when revisiting ingestion.
+  return {
+    invoke: async (state: IngestionState): Promise<IngestionState> => {
+      let s = state;
+      if (s.status === "failed") return s;
+      s = await analyzeDensity(s);
+      if (s.status === "failed") return s;
+      s = await extractText(s);
+      if (s.status === "failed") return s;
+      s = await performSemanticChunking(s);
+      if (s.status === "failed") return s;
+      s = await checkDuplicate(s);
+      if (s.status === "failed") return s;
+      s = await generateEmbeddings(s);
+      return s;
+    },
+  };
 }
+// export async function createIngestionGraph() {
+//   const graph = new StateGraph(IngestionState);
+
+//   graph
+//     .addNode("analyze_density", analyzeDensity)
+//     .addNode("extract_text", extractText)
+//     .addNode("semantic_chunk", performSemanticChunking)
+//     .addNode("check_duplicate", checkDuplicate)
+//     .addNode("generate_embeddings", generateEmbeddings);
+
+//   graph
+//     .addEdge("analyze_density", "extract_text")
+//     .addEdge("extract_text", "semantic_chunk")
+//     .addEdge("semantic_chunk", "check_duplicate")
+//     .addEdge("check_duplicate", "generate_embeddings");
+
+//   return graph.compile();
+// }
 
 /**
  * Initialize ingestion state for a document
