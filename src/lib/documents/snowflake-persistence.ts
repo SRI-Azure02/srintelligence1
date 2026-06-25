@@ -207,17 +207,21 @@ export async function markDocumentIndexed(
 
 /**
  * Complete ingestion workflow: persist all data and mark indexed
- */
+//  */
+// export async function completeIngestion(
+//   state: IngestionState,
+//   _unused?: unknown
 export async function completeIngestion(
   state: IngestionState,
-  _unused?: unknown
+  injectedClient?: SnowflakeClient
 ): Promise<{
   documentId: string;
   chunksCount: number;
   status: "success" | "partial" | "failed";
   error?: string;
 }> {
-  const sf = makeSFClient();
+  // const sf = makeSFClient();
+  const sf = injectedClient ?? makeSFClient();  
   try {
     // Check for duplicates
     const isDuplicate = await checkDuplicateInSnowflake(

@@ -78,7 +78,8 @@ describe("extractPptxText", () => {
 
   it("should trim trailing whitespace from extracted text", async () => {
     const { default: extractPptxFile } = await import("pptx-text-parser");
-    const paddedText = "  Slide content with padding and multiple words for minimum length check.  ";
+    const paddedText = "  Slide content with padding and plenty of additional words here to comfortably exceed the one hundred character minimum length requirement for extraction.  ";
+    // const paddedText = "  Slide content with padding and multiple words for minimum length check.  ";
     (extractPptxFile as any).mockResolvedValue(paddedText);
 
     const result = await extractPptxText(mockRawDocument);
