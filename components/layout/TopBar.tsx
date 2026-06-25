@@ -461,7 +461,7 @@ export default function TopBar() {
     <>
       <header
         className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0"
-        style={{ background: "#F9F8F4", borderBottom: "1px solid var(--border)" }}
+        style={{ background: "#F5F5F5" }}
       >
         {/* Logo */}
         <Link href="/chat" className="flex flex-col gap-0" style={{ textDecoration: "none" }}>

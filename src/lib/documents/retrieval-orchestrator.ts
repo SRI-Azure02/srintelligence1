@@ -1,4 +1,4 @@
-// import { StateGraph } from "@langchain/langgraph";
+import { StateGraph, Annotation } from "@langchain/langgraph";
 import { routeQuery } from "./query-router-agent";
 import { hybridSearch, RetrievedChunk } from "./hybrid-search";
 import {
@@ -7,15 +7,17 @@ import {
   ValidationResult,
 } from "./validator-agent";
 
-export interface RetrievalState {
-  originalQuery: string;
-  currentQuery: string;
-  cycle: number;
-  chunks: RetrievedChunk[];
-  validation: ValidationResult | null;
-  status: "routing" | "searching" | "validating" | "refining" | "complete" | "failed";
-  error: string | null;
-}
+const RetrievalAnnotation = Annotation.Root({
+  originalQuery: Annotation<string>({ reducer: (_, y) => y, default: () => "" }),
+  currentQuery: Annotation<string>({ reducer: (_, y) => y, default: () => "" }),
+  cycle: Annotation<number>({ reducer: (_, y) => y, default: () => 0 }),
+  chunks: Annotation<RetrievedChunk[]>({ reducer: (_, y) => y, default: () => [] }),
+  validation: Annotation<ValidationResult | null>({ reducer: (_, y) => y, default: () => null }),
+  status: Annotation<"routing" | "searching" | "validating" | "refining" | "complete" | "failed">({ reducer: (_, y) => y, default: () => "routing" }),
+  error: Annotation<string | null>({ reducer: (_, y) => y, default: () => null }),
+});
+
+export type RetrievalState = typeof RetrievalAnnotation.State;
 
 /**
  * Agentic Retrieval Orchestrator: 3-cycle optimization loop
@@ -27,131 +29,125 @@ export interface RetrievalState {
  * 4. If invalid and cycles remain: Refine query and retry
  * 5. Otherwise: Return best results
  */
+export async function createRetrievalGraph() {
+  /**
+   * Stage 1: Route the user query
+   */
+  const routeQueryNode = async (state: RetrievalState): Promise<RetrievalState> => {
+    try {
+      const routed = await routeQuery(state.originalQuery);
+      return {
+        ...state,
+        currentQuery: routed.finalQuery,
+        status: "searching",
+      };
+    } catch (error) {
+      return {
+        ...state,
+        currentQuery: state.originalQuery,
+        status: "searching",
+        error: `Routing failed: ${error}`,
+      };
+    }
+  };
 
-// export async function createRetrievalGraph() {
-//   const graph = new StateGraph(RetrievalState);
+  /**
+   * Stage 2: Hybrid search
+   */
+  const searchNode = async (
+    state: RetrievalState,
+    executeQuery: (sql: string, params?: any[]) => Promise<{ rows: any[] }>
+  ): Promise<RetrievalState> => {
+    try {
+      const chunks = await hybridSearch(
+        state.currentQuery,
+        executeQuery,
+        10
+      );
+      return {
+        ...state,
+        chunks: chunks.slice(0, 10),
+        status: "validating",
+      };
+    } catch (error) {
+      return {
+        ...state,
+        chunks: [],
+        status: "validating",
+        error: `Search failed: ${error}`,
+      };
+    }
+  };
 
-//   /**
-//    * Stage 1: Route the user query
-//    */
-//   const routeQueryNode = async (state: RetrievalState): Promise<RetrievalState> => {
-//     try {
-//       const routed = await routeQuery(state.originalQuery);
-//       return {
-//         ...state,
-//         currentQuery: routed.finalQuery,
-//         status: "searching",
-//       };
-//     } catch (error) {
-//       return {
-//         ...state,
-//         currentQuery: state.originalQuery,
-//         status: "searching",
-//         error: `Routing failed: ${error}`,
-//       };
-//     }
-//   };
+  /**
+   * Stage 3: Validate context quality
+   */
+  const validateNode = async (state: RetrievalState): Promise<RetrievalState> => {
+    try {
+      const validation = await validateContext(
+        state.originalQuery,
+        state.chunks
+      );
+      return {
+        ...state,
+        validation,
+        status: validation.shouldRetry && state.cycle < 3 ? "refining" : "complete",
+      };
+    } catch (error) {
+      return {
+        ...state,
+        status: "complete",
+        error: `Validation failed: ${error}`,
+      };
+    }
+  };
 
-//   /**
-//    * Stage 2: Hybrid search
-//    */
-//   const searchNode = async (
-//     state: RetrievalState,
-//     executeQuery: (sql: string, params?: any[]) => Promise<{ rows: any[] }>
-//   ): Promise<RetrievalState> => {
-//     try {
-//       const chunks = await hybridSearch(
-//         state.currentQuery,
-//         executeQuery,
-//         10
-//       );
-//       return {
-//         ...state,
-//         chunks: chunks.slice(0, 10),
-//         status: "validating",
-//       };
-//     } catch (error) {
-//       return {
-//         ...state,
-//         chunks: [],
-//         status: "validating",
-//         error: `Search failed: ${error}`,
-//       };
-//     }
-//   };
+  /**
+   * Stage 4: Refine query if needed
+   */
+  const refineNode = async (state: RetrievalState): Promise<RetrievalState> => {
+    if (!state.validation || state.cycle >= 3) {
+      return { ...state, status: "complete" };
+    }
 
-//   /**
-//    * Stage 3: Validate context quality
-//    */
-//   const validateNode = async (state: RetrievalState): Promise<RetrievalState> => {
-//     try {
-//       const validation = await validateContext(
-//         state.originalQuery,
-//         state.chunks
-//       );
-//       return {
-//         ...state,
-//         validation,
-//         status: validation.shouldRetry && state.cycle < 3 ? "refining" : "complete",
-//       };
-//     } catch (error) {
-//       return {
-//         ...state,
-//         status: "complete",
-//         error: `Validation failed: ${error}`,
-//       };
-//     }
-//   };
+    try {
+      const refined = await refineQuery(
+        state.currentQuery,
+        state.validation.feedback,
+        state.cycle
+      );
 
-//   /**
-//    * Stage 4: Refine query if needed
-//    */
-//   const refineNode = async (state: RetrievalState): Promise<RetrievalState> => {
-//     if (!state.validation || state.cycle >= 3) {
-//       return { ...state, status: "complete" };
-//     }
+      return {
+        ...state,
+        currentQuery: refined,
+        cycle: state.cycle + 1,
+        status: "searching", // Loop back to search
+        chunks: [], // Clear previous results
+        validation: null,
+      };
+    } catch (error) {
+      return {
+        ...state,
+        status: "complete",
+        error: `Refinement failed: ${error}`,
+      };
+    }
+  };
 
-//     try {
-//       const refined = await refineQuery(
-//         state.currentQuery,
-//         state.validation.feedback,
-//         state.cycle
-//       );
-
-//       return {
-//         ...state,
-//         currentQuery: refined,
-//         cycle: state.cycle + 1,
-//         status: "searching", // Loop back to search
-//         chunks: [], // Clear previous results
-//         validation: null,
-//       };
-//     } catch (error) {
-//       return {
-//         ...state,
-//         status: "complete",
-//         error: `Refinement failed: ${error}`,
-//       };
-//     }
-//   };
-
-//   // Add nodes
-//   graph
-//     .addNode("route_query", routeQueryNode)
-//     .addNode("validate", validateNode)
-//     .addNode("refine", refineNode);
-
-//   // Add edges
-//   graph.addEdge("route_query", "validate");
-//   graph.addConditionalEdges(
-//     "validate",
-//     (state) => (state.validation?.shouldRetry && state.cycle < 3 ? "refine" : "complete"),
-//     { refine: "refine", complete: "END" }
-//   );
-//   graph.addEdge("refine", "validate");
-
-//   return graph.compile();
-// }
+  return new StateGraph(RetrievalAnnotation)
+    .addNode("route_query", routeQueryNode)
+    .addNode("validate", validateNode)
+    .addNode("refine", refineNode)
+    .addEdge("__start__", "route_query")
+    .addEdge("route_query", "validate")
+    .addConditionalEdges(
+      "validate",
+      (state) => (state.validation?.shouldRetry && state.cycle < 3 ? "refine" : "__end__"),
+      { refine: "refine", __end__: "__end__" }
+    )
+    .addEdge("refine", "validate")
+    .compile();
+}
 
 /**
  * Execute retrieval with 3-cycle retry loop

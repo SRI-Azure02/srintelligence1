@@ -182,19 +182,11 @@ async function keywordSearch(
       LIMIT $${keywords.length + 1}
     `;
 
-    const params: { type: string; value: string | number }[] = keywords
-      .slice(0, 5)
-      .map((kw) => ({
-        type: "VARCHAR",
-        value: `%${kw}%`,
-      }));
-    params.push({ type: "INTEGER", value: limit });
-
-    // const params = keywords.slice(0, 5).map((kw) => ({
-    //   type: "VARCHAR",
-    //   value: `%${kw}%`,
-    // }));
-    // params.push({ type: "INTEGER", value: limit });
+    const params = keywords.slice(0, 5).map((kw) => ({
+      type: "VARCHAR",
+      value: `%${kw}%`,
+    }));
+    params.push({ type: "INTEGER", value: String(limit) });
 
     const result = await executeQuery(sql, params);
 

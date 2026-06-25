@@ -1037,7 +1037,7 @@ export default function ThreadPage() {
       </div>
 
       {/* Input */}
-      <div className="px-6 pb-5 pt-3 shrink-0">
+      <div className="px-6 pb-6 pt-3 shrink-0 w-full max-w-3xl mx-auto">
         <ChatInput
           placeholder="Ask a follow-up…"
           onSubmit={handleSubmit}

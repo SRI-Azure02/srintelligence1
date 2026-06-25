@@ -1,4 +1,18 @@
-"use client";
+﻿"use client";
+
+// â”€â”€ Brand tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const INK    = "#1A3358";
+const ACCENT = "#E26B2C";
+const BG     = "#F5F5F5";
+
+const GRAIN_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'>
+  <filter id='g'>
+    <feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/>
+    <feColorMatrix type='saturate' values='0'/>
+  </filter>
+  <rect width='200' height='200' filter='url(#g)' opacity='1'/>
+</svg>`;
+const GRAIN_URL = `url("data:image/svg+xml,${encodeURIComponent(GRAIN_SVG)}")`;
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
@@ -21,7 +35,7 @@ import ShareModal from "@/components/workflows/ShareModal";
 import StoryReportModal from "@/src/components/story/StoryReportModal";
 import type { StoryReport } from "@/src/lib/llm/anthropic";
 
-// ── Agent icon map — keep in sync with WorkflowCard.tsx AGENT_ICONS ──────────
+// â”€â”€ Agent icon map â€” keep in sync with WorkflowCard.tsx AGENT_ICONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const TMPL_ICONS: Record<string, LucideIcon> = {
   "sri-analyst":    Search,
   "sri-forecast":   TrendingUp,
@@ -55,7 +69,7 @@ function TemplateChain({ chain }: { chain: WorkflowCard["agentChain"] }) {
               <Icon size={12} style={{ color: "#111111" }} strokeWidth={1.6} />
             </span>
             {i < chain.length - 1 && (
-              <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>→</span>
+              <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>â†’</span>
             )}
           </span>
         );
@@ -115,10 +129,10 @@ function TemplatePickerModal({ workflows, onClose }: { workflows: WorkflowCard[]
   );
 }
 
-// ── Sort options ──────────────────────────────────────────────────────────────
+// â”€â”€ Sort options â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type SortKey = "created" | "modified" | "lastRun" | "name";
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-  { key: "name",     label: "Name (A–Z)" },
+  { key: "name",     label: "Name (Aâ€“Z)" },
   { key: "created",  label: "Date created" },
   { key: "modified", label: "Date modified" },
   { key: "lastRun",  label: "Last run" },
@@ -134,13 +148,13 @@ function sortWorkflows(wfs: WorkflowCard[], key: SortKey): WorkflowCard[] {
       case "modified":
         return (b.updatedAt ?? b.createdAt ?? "").localeCompare(a.updatedAt ?? a.createdAt ?? "");
       case "lastRun":
-        // "just now" / "3m ago" style strings — sort by runCount as fallback
+        // "just now" / "3m ago" style strings â€” sort by runCount as fallback
         return b.runCount - a.runCount;
     }
   });
 }
 
-// ── List-view row ─────────────────────────────────────────────────────────────
+// â”€â”€ List-view row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function WorkflowListRow({
   workflow,
   onDuplicate,
@@ -182,7 +196,7 @@ function WorkflowListRow({
     try {
       const messages = workflow.agentChain.map((step) => ({
         role: "agent",
-        content: `Agent: ${step.label}\nType: ${step.type}\nPrompt: ${step.prompt ?? "—"}`,
+        content: `Agent: ${step.label}\nType: ${step.type}\nPrompt: ${step.prompt ?? "â€”"}`,
         agentActivity: { routedTo: step.label },
       }));
       const res = await fetch("/api/agent/report", {
@@ -200,7 +214,7 @@ function WorkflowListRow({
     }
   };
 
-  // ── Running state ──────────────────────────────────────────────────────────
+  // â”€â”€ Running state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (isRunning && activeRun) {
     const doneCount    = activeRun.nodes.filter((n) => activeRun.nodeStates[n.id] === "done").length;
     const totalCount   = activeRun.nodes.length;
@@ -209,9 +223,9 @@ function WorkflowListRow({
 
     return (
       <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
-        style={{ background: "rgba(40,145,218,0.04)", border: "1px solid rgba(40,145,218,0.22)" }}>
+        style={{ background: "rgba(226,107,44,0.04)", border: "1px solid rgba(226,107,44,0.22)" }}>
 
-        {/* Node status icons — same 32px size as card view */}
+        {/* Node status icons â€” same 32px size as card view */}
         <div className="flex items-center gap-1 shrink-0">
           {activeRun.nodes.map((node) => {
             const state = activeRun.nodeStates[node.id] ?? "pending";
@@ -223,13 +237,13 @@ function WorkflowListRow({
               <span key={node.id} className="relative flex items-center justify-center w-8 h-8 rounded-lg"
                 style={{
                   background: isDone   ? "rgba(34,197,94,0.12)"
-                    : isActive ? "rgba(40,145,218,0.12)"
+                    : isActive ? "rgba(226,107,44,0.12)"
                     : "var(--bg-tertiary)",
                 }}
                 title={node.label}>
                 <Icon size={15} strokeWidth={1.6} style={{
                   color:   isDone   ? "#22c55e"
-                    : isActive ? "#2891DA"
+                    : isActive ? ACCENT
                     : "var(--text-muted)",
                   opacity: isPending ? 0.35 : 1,
                 }} />
@@ -244,7 +258,7 @@ function WorkflowListRow({
                 {isActive && (
                   <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5">
                     <span className="animate-spin block w-3.5 h-3.5 rounded-full"
-                      style={{ border: "1.5px solid rgba(40,145,218,0.2)", borderTopColor: "#2891DA" }} />
+                      style={{ border: "1.5px solid rgba(226,107,44,0.2)", borderTopColor: ACCENT }} />
                   </span>
                 )}
               </span>
@@ -258,16 +272,16 @@ function WorkflowListRow({
             title={workflow.name}>
             {workflow.name}
           </p>
-          <p className="text-xs truncate" style={{ color: "#2891DA" }}>
-            {currentNode ? `Running: ${currentNode.label}` : "Finishing up…"}
+          <p className="text-xs truncate" style={{ color: ACCENT }}>
+            {currentNode ? `Running: ${currentNode.label}` : "Finishing upâ€¦"}
           </p>
         </div>
 
         {/* Progress bar + counter */}
         <div className="flex items-center gap-2 shrink-0" style={{ minWidth: 120 }}>
-          <div className="flex-1 rounded-full overflow-hidden" style={{ height: 4, background: "rgba(40,145,218,0.12)", minWidth: 80 }}>
+          <div className="flex-1 rounded-full overflow-hidden" style={{ height: 4, background: "rgba(226,107,44,0.12)", minWidth: 80 }}>
             <div className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${pct}%`, background: "#2891DA" }} />
+              style={{ width: `${pct}%`, background: ACCENT }} />
           </div>
           <span className="text-xs tabular-nums shrink-0" style={{ color: "var(--text-muted)" }}>
             {doneCount}/{totalCount}
@@ -284,7 +298,7 @@ function WorkflowListRow({
     );
   }
 
-  // ── Results-ready state (run just completed) ───────────────────────────────
+  // â”€â”€ Results-ready state (run just completed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const hasResults = lastRun && lastRun.status === "done" && Object.keys(lastRun.nodeArtifacts ?? {}).length > 0;
   if (hasResults && !isRunning) {
     const nodes = lastRun!.nodes;
@@ -314,7 +328,7 @@ function WorkflowListRow({
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold truncate" style={{ color: "var(--text-primary)" }}
               title={workflow.name}>{workflow.name}</p>
-            <p className="text-xs" style={{ color: "#22c55e" }}>Run complete · results ready</p>
+            <p className="text-xs" style={{ color: "#22c55e" }}>Run complete Â· results ready</p>
           </div>
 
           {/* Action buttons */}
@@ -333,15 +347,15 @@ function WorkflowListRow({
               onClick={handleGenerateReport}
               disabled={reportLoading}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:bg-blue-50 disabled:opacity-40"
-              style={{ color: "#2891DA", border: "1px solid rgba(40,145,218,0.35)", background: "rgba(40,145,218,0.04)" }}>
-              {reportLoading ? <><Loader2 size={12} className="animate-spin" />Generating…</> : <><BookOpen size={12} />Executive Brief</>}
+              style={{ color: ACCENT, border: "1px solid rgba(226,107,44,0.35)", background: "rgba(226,107,44,0.04)" }}>
+              {reportLoading ? <><Loader2 size={12} className="animate-spin" />Generatingâ€¦</> : <><BookOpen size={12} />Executive Brief</>}
             </button>
 
             {/* Run Again */}
             <button
               onClick={handleRun}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-90"
-              style={{ background: "#2891DA", color: "white" }}>
+              style={{ background: ACCENT, color: "white" }}>
               <Play size={12} fill="white" strokeWidth={0} />
               Run Again
             </button>
@@ -365,7 +379,7 @@ function WorkflowListRow({
     );
   }
 
-  // ── Normal (idle) state ────────────────────────────────────────────────────
+  // â”€â”€ Normal (idle) state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const idleLastResults = lastRun?.status === "done" && Object.keys(lastRun.nodeArtifacts ?? {}).length > 0;
 
   return (
@@ -396,14 +410,14 @@ function WorkflowListRow({
             {workflow.name}
           </p>
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {workflow.lastRun} · #{workflow.runCount} runs
+            {workflow.lastRun} Â· #{workflow.runCount} runs
           </p>
         </div>
 
         {/* Actions */}
         <div className="flex items-center gap-2 shrink-0">
 
-          {/* Last Results — labeled, green tint */}
+          {/* Last Results â€” labeled, green tint */}
           {idleLastResults && (
             <button
               onClick={() => router.push(`/workflows/${workflow.id}/edit`)}
@@ -415,23 +429,23 @@ function WorkflowListRow({
             </button>
           )}
 
-          {/* Executive Brief — labeled, blue ghost */}
+          {/* Executive Brief â€” labeled, blue ghost */}
           <button
             onClick={handleGenerateReport}
             disabled={reportLoading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:bg-blue-50 disabled:opacity-40"
-            style={{ color: "#2891DA", border: "1px solid rgba(40,145,218,0.35)", background: "rgba(40,145,218,0.04)", whiteSpace: "nowrap" }}
+            style={{ color: ACCENT, border: "1px solid rgba(226,107,44,0.35)", background: "rgba(226,107,44,0.04)", whiteSpace: "nowrap" }}
             title="Generate an AI executive brief">
             {reportLoading
-              ? <><Loader2 size={12} className="animate-spin" />Generating…</>
+              ? <><Loader2 size={12} className="animate-spin" />Generatingâ€¦</>
               : <><BookOpen size={12} />Executive Brief</>}
           </button>
 
-          {/* Run Again — primary blue */}
+          {/* Run Again â€” primary blue */}
           <button
             onClick={handleRun}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:opacity-90"
-            style={{ background: "#2891DA", color: "white", whiteSpace: "nowrap" }}
+            style={{ background: ACCENT, color: "white", whiteSpace: "nowrap" }}
             title="Run workflow">
             <Play size={12} fill="white" strokeWidth={0} />
             Run Again
@@ -486,7 +500,7 @@ function WorkflowListRow({
   );
 }
 
-// ── Sort dropdown ─────────────────────────────────────────────────────────────
+// â”€â”€ Sort dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function SortDropdown({ value, onChange }: { value: SortKey; onChange: (k: SortKey) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -505,8 +519,8 @@ function SortDropdown({ value, onChange }: { value: SortKey; onChange: (k: SortK
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-black/5"
-        style={{ border: "1px solid var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)" }}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-black/5"
+        style={{ border: `1px solid ${INK}20`, borderRadius: 9999, color: INK, background: "#F5F5F5" }}
       >
         <SortAsc size={13} />
         {label}
@@ -529,7 +543,7 @@ function SortDropdown({ value, onChange }: { value: SortKey; onChange: (k: SortK
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function WorkflowsPage() {
   const router = useRouter();
   const [showTemplate, setShowTemplate] = useState(false);
@@ -553,13 +567,13 @@ export default function WorkflowsPage() {
       const active = document.activeElement as HTMLElement | null;
       const inField = tag === "INPUT" || tag === "TEXTAREA" || active?.isContentEditable;
 
-      // "/" — focus search (when not already in a field)
+      // "/" â€” focus search (when not already in a field)
       if (e.key === "/" && !inField) {
         e.preventDefault();
         searchRef.current?.focus();
         return;
       }
-      // Escape — blur search input
+      // Escape â€” blur search input
       if (e.key === "Escape") {
         searchRef.current?.blur();
         return;
@@ -568,14 +582,14 @@ export default function WorkflowsPage() {
       // Below shortcuts should NOT fire when typing
       if (inField) return;
 
-      // N — new workflow
+      // N â€” new workflow
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
         router.push("/workflows/new/edit");
       }
-      // 1 — grid view
+      // 1 â€” grid view
       if (e.key === "1") setViewMode("grid");
-      // 2 — list view
+      // 2 â€” list view
       if (e.key === "2") setViewMode("list");
     };
     document.addEventListener("keydown", handler);
@@ -589,7 +603,7 @@ export default function WorkflowsPage() {
       ...source,
       id: `${source.id}-copy-${Date.now()}`,
       name: `${source.name} (Copy)`,
-      lastRun: "—", runCount: 0, status: "success",
+      lastRun: "â€”", runCount: 0, status: "success",
     };
     setWorkflows((prev) => {
       const idx = prev.findIndex((w) => w.id === id);
@@ -618,69 +632,85 @@ export default function WorkflowsPage() {
   }, [workflows, query, sortKey]);
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto" style={{ background: "var(--bg-primary)" }}>
-      <div className="px-5 py-5 w-full flex flex-col gap-4">
+    <div className="relative flex flex-col h-full overflow-y-auto" style={{ background: BG }}>
+      {/* Noise texture */}
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: GRAIN_URL, backgroundRepeat: "repeat", backgroundSize: "200px 200px", opacity: 0.22, pointerEvents: "none", zIndex: 0 }} />
 
-        {/* Header row */}
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold shrink-0" style={{ color: "var(--text-primary)" }}>My Workflows</h2>
-          <Link
-            href="/workflows/new/edit"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90 shrink-0 ml-auto"
-            style={{ background: "#2891DA", color: "white" }}
-          >
-            <Plus size={15} />
-            New Workflow
-          </Link>
+      <div className="relative z-10 w-full flex flex-col">
+
+        {/* SRI Masthead */}
+        <div className="px-6 pt-4">
+          <div style={{ borderTop: `3px double ${INK}`, paddingTop: "5px" }}>
+            <div style={{ borderTop: `1px solid ${INK}`, paddingTop: "4px", paddingBottom: "4px", textAlign: "center" }}>
+              <span style={{ fontFamily: "var(--font-nunito-sans), system-ui, sans-serif", fontSize: "12px", fontWeight: 800, letterSpacing: "0.38em", textTransform: "uppercase", color: INK }}>
+                Workflows
+              </span>
+            </div>
+            <div style={{ borderTop: `1px solid ${INK}` }} />
+          </div>
         </div>
 
-        {/* Toolbar: search + view toggle + sort */}
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="relative flex-1 max-w-sm">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
-              style={{ color: "var(--text-muted)" }} />
-            <input
-              ref={searchRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder='Search workflows… ("/" to focus)'
-              className="w-full text-xs rounded-lg pl-8 pr-8 py-1.5 outline-none"
-              style={{ border: "1px solid var(--border)", background: "var(--bg-secondary)", color: "var(--text-primary)" }}
-            />
-            {query && (
-              <button onClick={() => setQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-black/7 transition-colors"
-                style={{ color: "var(--text-muted)" }}>
-                <X size={11} />
+        {/* White ribbon toolbar */}
+        <div className="px-6 shrink-0 sticky top-0 z-10" style={{ background: BG }}>
+          <div className="flex items-center gap-2 px-4 py-2.5"
+            style={{ background: "#fff", borderBottom: `1px solid rgba(26,51,88,0.18)` }}>
+
+            {/* Search — pill */}
+            <div className="relative flex-1 max-w-sm">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                style={{ color: `${INK}60` }} />
+              <input
+                ref={searchRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder='Search workflows… ("/" to focus)'
+                className="w-full text-xs pl-8 pr-8 py-1.5 outline-none"
+                style={{ border: `1px solid ${INK}20`, borderRadius: 9999, background: "#F5F5F5", color: INK }}
+              />
+              {query && (
+                <button onClick={() => setQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-black/5 transition-colors"
+                  style={{ color: `${INK}60` }}>
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+
+            {/* Sort — pill */}
+            <SortDropdown value={sortKey} onChange={setSortKey} />
+
+            {/* View toggle — pill buttons */}
+            <div className="flex items-center shrink-0 rounded-full overflow-hidden"
+              style={{ border: `1px solid ${INK}20` }}>
+              <button
+                onClick={() => setViewMode("grid")}
+                className="flex items-center justify-center px-2.5 py-1.5 transition-colors"
+                style={{ background: viewMode === "grid" ? ACCENT : "transparent", color: viewMode === "grid" ? "#fff" : `${INK}70` }}
+                title="Grid view">
+                <LayoutGrid size={13} />
               </button>
-            )}
-          </div>
+              <button
+                onClick={() => setViewMode("list")}
+                className="flex items-center justify-center px-2.5 py-1.5 transition-colors"
+                style={{ background: viewMode === "list" ? ACCENT : "transparent", color: viewMode === "list" ? "#fff" : `${INK}70` }}
+                title="List view">
+                <List size={13} />
+              </button>
+            </div>
 
-          {/* Sort */}
-          <SortDropdown value={sortKey} onChange={setSortKey} />
-
-          {/* View toggle */}
-          <div className="flex items-center rounded-lg overflow-hidden shrink-0"
-            style={{ border: "1px solid var(--border)" }}>
-            <button
-              onClick={() => setViewMode("grid")}
-              className="flex items-center justify-center px-2.5 py-1.5 transition-colors"
-              style={{ background: viewMode === "grid" ? "#2891DA" : "var(--bg-secondary)", color: viewMode === "grid" ? "#fff" : "var(--text-muted)" }}
-              title="Grid view"
-            >
-              <LayoutGrid size={13} />
-            </button>
-            <button
-              onClick={() => setViewMode("list")}
-              className="flex items-center justify-center px-2.5 py-1.5 transition-colors"
-              style={{ background: viewMode === "list" ? "#2891DA" : "var(--bg-secondary)", color: viewMode === "list" ? "#fff" : "var(--text-muted)" }}
-              title="List view"
-            >
-              <List size={13} />
-            </button>
+            {/* New workflow — orange circle "+" */}
+            <Link
+              href="/workflows/new/edit"
+              className="flex items-center justify-center shrink-0 rounded-full transition-colors hover:opacity-85"
+              style={{ width: 30, height: 30, background: ACCENT, color: "#fff" }}
+              title="New workflow">
+              <Plus size={15} strokeWidth={2.5} />
+            </Link>
           </div>
         </div>
+
+        {/* Content area */}
+        <div className="px-6 pt-4 flex flex-col gap-4">
 
         {/* Results count when searching */}
         {query && (
@@ -748,14 +778,14 @@ export default function WorkflowsPage() {
               <WorkflowListRow key={wf.id} workflow={wf} onDuplicate={handleDuplicate} onDelete={handleDelete} />
             ))}
 
-            {/* New Workflow row — mirrors the grid card */}
+            {/* New Workflow row â€” mirrors the grid card */}
             {!query && (
               <div className="rounded-xl px-4 py-3 flex flex-col gap-2.5"
                 style={{ border: "1.5px dashed var(--border)" }}>
                 <div className="flex items-center gap-2">
                   <Plus size={14} style={{ color: "var(--text-muted)" }} />
                   <span className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>New Workflow</span>
-                  <span className="text-xs ml-1" style={{ color: "var(--text-muted)" }}>— start from:</span>
+                  <span className="text-xs ml-1" style={{ color: "var(--text-muted)" }}>â€” start from:</span>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <Link href="/chat"
@@ -782,9 +812,11 @@ export default function WorkflowsPage() {
             )}
           </div>
         )}
+        </div>{/* end content area */}
       </div>
 
       {showTemplate && <TemplatePickerModal workflows={workflows} onClose={() => setShowTemplate(false)} />}
     </div>
   );
 }
+

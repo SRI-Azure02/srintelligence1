@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-// import { StateGraph } from "@langchain/langgraph";
+import { StateGraph, Annotation } from "@langchain/langgraph";
 import crypto from "crypto";
 import { Buffer } from "buffer";
 import { analyzeTextDensity } from "./density-analyzer";
@@ -17,23 +17,25 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-export interface IngestionState {
-  documentId: string;
-  buffer: Buffer;
-  fileType: "pdf" | "docx" | "pptx";
-  fileName: string;
-  userId: string;
-  textDensity: number;
-  parsingMethod: "pdfmupdf" | "claude_vision";
-  fullText: string;
-  contentHash: string;
-  isDuplicate: boolean;
-  chunks: SemanticChunk[];
-  embeddings: (number[] | null)[];
-  status: "pending" | "extracted" | "chunked" | "embedded" | "persisted" | "failed";
-  error: string | null;
-  errorDetails?: string;
-}
+const IngestionAnnotation = Annotation.Root({
+  documentId: Annotation<string>({ reducer: (_, y) => y, default: () => "" }),
+  buffer: Annotation<Buffer>({ reducer: (_, y) => y, default: () => Buffer.alloc(0) }),
+  fileType: Annotation<"pdf" | "docx" | "pptx">({ reducer: (_, y) => y, default: () => "pdf" }),
+  fileName: Annotation<string>({ reducer: (_, y) => y, default: () => "" }),
+  userId: Annotation<string>({ reducer: (_, y) => y, default: () => "" }),
+  textDensity: Annotation<number>({ reducer: (_, y) => y, default: () => 0 }),
+  parsingMethod: Annotation<"pdfmupdf" | "claude_vision">({ reducer: (_, y) => y, default: () => "pdfmupdf" }),
+  fullText: Annotation<string>({ reducer: (_, y) => y, default: () => "" }),
+  contentHash: Annotation<string>({ reducer: (_, y) => y, default: () => "" }),
+  isDuplicate: Annotation<boolean>({ reducer: (_, y) => y, default: () => false }),
+  chunks: Annotation<SemanticChunk[]>({ reducer: (_, y) => y, default: () => [] }),
+  embeddings: Annotation<(number[] | null)[]>({ reducer: (_, y) => y, default: () => [] }),
+  status: Annotation<"pending" | "extracted" | "chunked" | "embedded" | "persisted" | "failed">({ reducer: (_, y) => y, default: () => "pending" }),
+  error: Annotation<string | null>({ reducer: (_, y) => y, default: () => null }),
+  errorDetails: Annotation<string | undefined>({ reducer: (_, y) => y, default: () => undefined }),
+});
+
+export type IngestionState = typeof IngestionAnnotation.State;
 
 /**
  * Step 1: Analyze text density to determine extraction method
@@ -194,47 +196,20 @@ async function generateEmbeddings(
 /**
  * Create the LangGraph state machine for ingestion
  */
-
 export async function createIngestionGraph() {
-  // NOTE: Previously used LangGraph's StateGraph, but that API changed and is
-  // incompatible with the installed @langchain/langgraph version. The graph was
-  // purely linear, so this runs the same steps in the same order.
-  // TODO: migrate back to StateGraph (Annotation.Root API) when revisiting ingestion.
-  return {
-    invoke: async (state: IngestionState): Promise<IngestionState> => {
-      let s = state;
-      if (s.status === "failed") return s;
-      s = await analyzeDensity(s);
-      if (s.status === "failed") return s;
-      s = await extractText(s);
-      if (s.status === "failed") return s;
-      s = await performSemanticChunking(s);
-      if (s.status === "failed") return s;
-      s = await checkDuplicate(s);
-      if (s.status === "failed") return s;
-      s = await generateEmbeddings(s);
-      return s;
-    },
-  };
+  return new StateGraph(IngestionAnnotation)
+    .addNode("analyze_density", analyzeDensity)
+    .addNode("extract_text", extractText)
+    .addNode("semantic_chunk", performSemanticChunking)
+    .addNode("check_duplicate", checkDuplicate)
+    .addNode("generate_embeddings", generateEmbeddings)
+    .addEdge("__start__", "analyze_density")
+    .addEdge("analyze_density", "extract_text")
+    .addEdge("extract_text", "semantic_chunk")
+    .addEdge("semantic_chunk", "check_duplicate")
+    .addEdge("check_duplicate", "generate_embeddings")
+    .compile();
 }
-// export async function createIngestionGraph() {
-//   const graph = new StateGraph(IngestionState);
-
-//   graph
-//     .addNode("analyze_density", analyzeDensity)
-//     .addNode("extract_text", extractText)
-//     .addNode("semantic_chunk", performSemanticChunking)
-//     .addNode("check_duplicate", checkDuplicate)
-//     .addNode("generate_embeddings", generateEmbeddings);
-
-//   graph
-//     .addEdge("analyze_density", "extract_text")
-//     .addEdge("extract_text", "semantic_chunk")
-//     .addEdge("semantic_chunk", "check_duplicate")
-//     .addEdge("check_duplicate", "generate_embeddings");
-
-//   return graph.compile();
-// }
 
 /**
  * Initialize ingestion state for a document
@@ -260,5 +235,6 @@ export function createInitialState(
     embeddings: [],
     status: "pending",
     error: null,
+    errorDetails: undefined,
   };
 }

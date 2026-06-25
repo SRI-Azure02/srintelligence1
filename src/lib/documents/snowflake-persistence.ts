@@ -1,3 +1,4 @@
+import { executeSQL } from "@/src/lib/snowflake/sql-api";
 import { IngestionState } from "./ingestion-agent";
 import { SemanticChunk } from "./extractors/types";
 
@@ -8,6 +9,29 @@ import { SemanticChunk } from "./extractors/types";
 
 interface SnowflakeClient {
   executeQuery(sql: string, params?: any[]): Promise<{ rows: any[] }>;
+}
+
+// Inline SQL parameters (? placeholders) since executeSQL does not support bind params
+function inlineParams(sql: string, params?: any[]): string {
+  if (!params || params.length === 0) return sql;
+  let i = 0;
+  return sql.replace(/\?/g, () => {
+    const val = params[i++];
+    if (val === null || val === undefined) return 'NULL';
+    if (typeof val === 'number') return String(val);
+    if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+    return `'${String(val).replace(/'/g, "''")}'`;
+  });
+}
+
+// Adapter: wraps executeSQL to match the SnowflakeClient interface
+function makeSFClient(): SnowflakeClient {
+  return {
+    executeQuery: async (sql: string, params?: any[]) => {
+      const result = await executeSQL(inlineParams(sql, params));
+      return { rows: result.rows };
+    },
+  };
 }
 
 /**
@@ -186,13 +210,14 @@ export async function markDocumentIndexed(
  */
 export async function completeIngestion(
   state: IngestionState,
-  sf: SnowflakeClient
+  _unused?: unknown
 ): Promise<{
   documentId: string;
   chunksCount: number;
   status: "success" | "partial" | "failed";
   error?: string;
 }> {
+  const sf = makeSFClient();
   try {
     // Check for duplicates
     const isDuplicate = await checkDuplicateInSnowflake(

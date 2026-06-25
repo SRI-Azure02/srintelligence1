@@ -1,5 +1,19 @@
 "use client";
 
+// ── Brand tokens ──────────────────────────────────────────────────────────────
+const INK    = "#1A3358";
+const ACCENT = "#E26B2C";
+const BG     = "#F5F5F5";
+
+const GRAIN_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'>
+  <filter id='g'>
+    <feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/>
+    <feColorMatrix type='saturate' values='0'/>
+  </filter>
+  <rect width='200' height='200' filter='url(#g)' opacity='1'/>
+</svg>`;
+const GRAIN_URL = `url("data:image/svg+xml,${encodeURIComponent(GRAIN_SVG)}")`;
+
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Search, BookOpen, Database, ChevronDown, Loader2, Pencil, Check } from "lucide-react";
@@ -277,10 +291,25 @@ export default function DataExplorePage() {
 
   return (
     <div
-      className="flex flex-col h-full overflow-y-auto"
-      style={{ background: "var(--bg-primary)" }}
+      className="relative flex flex-col h-full overflow-y-auto"
+      style={{ background: BG }}
     >
-      <div className="px-5 py-4 flex flex-col gap-4 w-full">
+      {/* Noise texture */}
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: GRAIN_URL, backgroundRepeat: "repeat", backgroundSize: "200px 200px", opacity: 0.22, pointerEvents: "none", zIndex: 0 }} />
+
+      {/* SRI Masthead */}
+      <div className="relative z-10 shrink-0 px-6 pt-4">
+        <div style={{ borderTop: `3px double ${INK}`, paddingTop: "5px" }}>
+          <div style={{ borderTop: `1px solid ${INK}`, paddingTop: "4px", paddingBottom: "4px", textAlign: "center" }}>
+            <span style={{ fontFamily: "var(--font-nunito-sans), system-ui, sans-serif", fontSize: "12px", fontWeight: 800, letterSpacing: "0.38em", textTransform: "uppercase", color: INK }}>
+              Data
+            </span>
+          </div>
+          <div style={{ borderTop: `1px solid ${INK}` }} />
+        </div>
+      </div>
+
+      <div className="relative z-10 px-6 pt-4 flex flex-col gap-4 w-full overflow-y-auto flex-1">
 
         {/* Semantic view selector */}
         <div className="flex items-center gap-3">
@@ -475,7 +504,7 @@ export default function DataExplorePage() {
         </div>
 
         {/* Inline chat */}
-        <div className="pb-4">
+        <div className="pb-6 w-full max-w-3xl mx-auto">
           <ChatInput
             placeholder="Ask a question about this data..."
             onSubmit={() => router.push(`/chat/thread-1`)}

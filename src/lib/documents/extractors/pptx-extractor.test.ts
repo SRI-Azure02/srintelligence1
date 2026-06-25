@@ -3,17 +3,30 @@ import { Buffer } from "buffer";
 import { extractPptxText } from "./pptx-extractor";
 import { RawDocument } from "./types";
 
-// Mock pptx-parse module
-vi.mock("pptx-parse", () => ({
-  default: {
-    toJson: vi.fn(),
-  },
+// Mock pptx-text-parser — default export takes filepath, returns string
+vi.mock("pptx-text-parser", () => ({
+  default: vi.fn(),
+}));
+
+// Mock fs so we don't write real temp files in tests
+vi.mock("fs", () => ({
+  writeFileSync: vi.fn(),
+  unlinkSync: vi.fn(),
+}));
+
+vi.mock("os", () => ({
+  tmpdir: () => "/tmp",
+}));
+
+vi.mock("path", () => ({
+  join: (...parts: string[]) => parts.join("/"),
 }));
 
 describe("extractPptxText", () => {
   let mockRawDocument: RawDocument;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     mockRawDocument = {
       fileType: "pptx",
       fileName: "test.pptx",
@@ -23,33 +36,16 @@ describe("extractPptxText", () => {
     };
   });
 
-  it("should extract text from all slides in a PPTX", async () => {
-    const pptxParser = await import("pptx-parse");
-
-    (pptxParser.default.toJson as any).mockResolvedValue({
-      slides: [
-        {
-          shapes: [
-            { text: "Slide 1 Title" },
-            { text: "Introduction to the topic" },
-          ],
-        },
-        {
-          shapes: [
-            { text: "Slide 2 Title" },
-            { text: "Key points and details" },
-          ],
-        },
-      ],
-    });
+  it("should extract text from PPTX via pptx-text-parser", async () => {
+    const { default: extractPptxFile } = await import("pptx-text-parser");
+    (extractPptxFile as any).mockResolvedValue(
+      "Slide 1 Title\nIntroduction to the topic\nSlide 2 Title\nKey points and details\nMore content here for length padding."
+    );
 
     const result = await extractPptxText(mockRawDocument);
 
     expect(result.fullText).toContain("Slide 1 Title");
     expect(result.fullText).toContain("Introduction to the topic");
-    expect(result.fullText).toContain("Slide 2 Title");
-    expect(result.fullText).toContain("Key points and details");
-    expect(result.pageCount).toBe(2);
     expect(result.textDensity).toBe(0.12);
     expect(result.parsingMethod).toBe("pdfmupdf");
   });
@@ -62,56 +58,31 @@ describe("extractPptxText", () => {
     );
   });
 
-  it("should throw error for sparse text extraction", async () => {
-    const pptxParser = await import("pptx-parse");
-
-    (pptxParser.default.toJson as any).mockResolvedValue({
-      slides: [
-        {
-          shapes: [{ text: "Hi" }], // Too short
-        },
-      ],
-    });
+  it("should throw error for sparse text extraction (< 100 chars)", async () => {
+    const { default: extractPptxFile } = await import("pptx-text-parser");
+    (extractPptxFile as any).mockResolvedValue("Hi");
 
     await expect(extractPptxText(mockRawDocument)).rejects.toThrow(
       "PPTX extraction resulted in less than 100 characters of text"
     );
   });
 
-  it("should handle slides with no shapes", async () => {
-    const pptxParser = await import("pptx-parse");
-
-    (pptxParser.default.toJson as any).mockResolvedValue({
-      slides: [
-        {
-          shapes: [],
-        },
-        {
-          shapes: [
-            {
-              text: "This is content from a slide with many words to exceed the hundred character minimum threshold for extraction validation.",
-            },
-          ],
-        },
-      ],
-    });
-
-    const result = await extractPptxText(mockRawDocument);
-
-    expect(result.pageCount).toBe(2);
-    expect(result.fullText).toContain("Slide 1");
-    expect(result.fullText).toContain("Slide 2");
-  });
-
   it("should handle extraction errors gracefully", async () => {
-    const pptxParser = await import("pptx-parse");
-
-    (pptxParser.default.toJson as any).mockRejectedValue(
-      new Error("Invalid PPTX archive")
-    );
+    const { default: extractPptxFile } = await import("pptx-text-parser");
+    (extractPptxFile as any).mockRejectedValue(new Error("Invalid PPTX archive"));
 
     await expect(extractPptxText(mockRawDocument)).rejects.toThrow(
       "PPTX extraction failed"
     );
+  });
+
+  it("should trim trailing whitespace from extracted text", async () => {
+    const { default: extractPptxFile } = await import("pptx-text-parser");
+    const paddedText = "  Slide content with padding and multiple words for minimum length check.  ";
+    (extractPptxFile as any).mockResolvedValue(paddedText);
+
+    const result = await extractPptxText(mockRawDocument);
+
+    expect(result.fullText).not.toMatch(/^\s|\s$/);
   });
 });

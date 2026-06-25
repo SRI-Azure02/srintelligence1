@@ -23,12 +23,15 @@
     "fast-xml-parser": "^5.9.2",
     "lru-cache": "^11.3.3",
     "lucide-react": "^1.7.0",
+    "mammoth": "^1.12.0",
     "next": "16.2.2",
+    "pptx-text-parser": "^1.1.1",
     "pptxgenjs": "^4.0.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
     "snowflake-sdk": "^2.4.0",
+    "unpdf": "^1.6.2",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
@@ -38,11 +41,11 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
+    "@vitest/ui": "^1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^1.0.0",
-    "@vitest/ui": "^1.0.0"
+    "vitest": "^1.0.0"
   }
 }

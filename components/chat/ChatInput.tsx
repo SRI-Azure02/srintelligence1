@@ -1075,10 +1075,12 @@ export default function ChatInput({
 
       {/* Input box ────────────────────────────────────────────────────────── */}
       <div
-        className="flex items-end gap-3 rounded-xl px-4 py-3"
+        className="flex items-center gap-3 px-4 py-3"
         style={{
-          background: "#ffffff",
-          border: `1px solid ${isStreaming ? "rgba(239,68,68,0.35)" : "var(--border)"}`,
+          background: "#E3E3E3",
+          borderRadius: 28,
+          border: isStreaming ? "1px solid rgba(239,68,68,0.35)" : "none",
+          boxShadow: "0 4px 16px rgba(26,51,88,0.13), 0 1px 4px rgba(26,51,88,0.08)",
         }}
       >
         {/* Semantic view selector */}
@@ -1087,8 +1089,8 @@ export default function ChatInput({
             <button
               onClick={() => setShowPicker((v) => !v)}
               disabled={isStreaming}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors hover:bg-black/5 disabled:opacity-40"
-              style={{ border: "1px solid var(--border)", color: "var(--text-muted)", background: "var(--bg-secondary)", maxWidth: 120 }}
+              className="flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors hover:bg-black/10 disabled:opacity-40"
+              style={{ border: "1px solid rgba(0,0,0,0.15)", color: "#1A3358", background: "rgba(0,0,0,0.08)", maxWidth: 120, fontWeight: 600 }}
               title="Select semantic model"
             >
               <Database size={11} style={{ flexShrink: 0 }} />
@@ -1149,7 +1151,7 @@ export default function ChatInput({
             onMouseEnter={() => setMicHovered(true)}
             onMouseLeave={() => setMicHovered(false)}
             title={isRecording ? "Stop recording" : "Voice input"}
-            className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
+            className="flex items-center justify-center w-8 h-8 rounded-full shrink-0"
             style={{
               background: isRecording
                 ? micHovered ? "rgba(239,68,68,0.2)" : "rgba(239,68,68,0.1)"
@@ -1173,7 +1175,7 @@ export default function ChatInput({
           <button
             onClick={onAbort}
             title="Stop"
-            className="flex items-center justify-center w-8 h-8 rounded-lg transition-all shrink-0 hover:opacity-85"
+            className="flex items-center justify-center w-8 h-8 rounded-full transition-all shrink-0 hover:opacity-85"
             style={{ background: "#ef4444", color: "white" }}
           >
             <StopCircle size={16} />
@@ -1183,9 +1185,9 @@ export default function ChatInput({
             onClick={handleSubmit}
             disabled={!value.trim() || disabled}
             title="Send (Enter)"
-            className="flex items-center justify-center w-8 h-8 rounded-lg transition-all shrink-0"
+            className="flex items-center justify-center w-8 h-8 rounded-full transition-all shrink-0"
             style={{
-              background: value.trim() && !disabled ? "#2891DA" : "var(--bg-hover)",
+              background: value.trim() && !disabled ? "#E26B2C" : "rgba(0,0,0,0.10)",
               color:      value.trim() && !disabled ? "white"   : "var(--text-muted)",
               cursor:     value.trim() && !disabled ? "pointer" : "not-allowed",
             }}
@@ -1227,8 +1229,8 @@ export default function ChatInput({
         </div>
       )}
 
-      {/* Help text ────────────────────────────────────────────────────────── */}
-      {!isStreaming && (
+      {/* Help text — shown only when the user has typed something ──────── */}
+      {!isStreaming && value.trim().length > 0 && (
         <div className="flex items-center gap-x-4 gap-y-1 px-1 flex-wrap" style={{ color: "var(--text-muted)" }}>
           {/* Fixed four hints — always visible */}
           <span className="flex items-center gap-1" style={{ fontSize: "11px" }}>

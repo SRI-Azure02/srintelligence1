@@ -22,20 +22,21 @@ export async function extractPdfText(
     // Get document proxy from buffer
     const pdf = await getDocumentProxy(new Uint8Array(document.buffer));
 
-    // Extract text with merged pages (single flat string)
-    const text = await extractText(pdf, {
+    // Extract text with merged pages — returns { totalPages, text } when mergePages: true
+    const extracted = await extractText(pdf, {
       mergePages: true,
     });
+    const text = (extracted as { totalPages: number; text: string }).text ?? (extracted as unknown as string);
 
     // Validation: ensure we extracted meaningful text
-    if (!text || text.trim().length < 100) {
+    if (!text || String(text).trim().length < 100) {
       throw new Error(
         "PDF extraction resulted in less than 100 characters of text"
       );
     }
 
     return {
-      fullText: text,
+      fullText: String(text),
       pageCount: pdf.numPages || undefined,
       textDensity: document.textDensity,
       parsingMethod: "pdfmupdf",

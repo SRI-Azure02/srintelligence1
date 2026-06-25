@@ -1,117 +1,122 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { Clock } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import ChatInput from "@/components/chat/ChatInput";
-import { useChatHistory } from "@/components/providers/ChatHistoryProvider";
 
-function getGreeting(hour: number): string {
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
-}
+const INK    = "#1A3358";
+const ACCENT = "#E26B2C";
+const BG     = "#F5F5F5";
+
+const GRAIN_SVG = `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='200' height='200' filter='url(#g)' opacity='1'/></svg>`;
+const GRAIN_URL = `url("data:image/svg+xml,${encodeURIComponent(GRAIN_SVG)}")`;
 
 function newThreadId() {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+const SUGGESTED_PROMPTS: { category: string; color: string; prompts: string[] }[] = [
+  {
+    category: "Analytics",
+    color: "#2891DA",
+    prompts: [
+      "What are the top 10 prescribers by total Rx volume in Q4 2025?",
+      "Show market share by brand for oncology drugs in H2 2025",
+    ],
+  },
+  {
+    category: "Causal",
+    color: "#8b5cf6",
+    prompts: [
+      "What causal factors drove the increase in Rx volume for Palbociclib in H2 2025?",
+      "Estimate the lift from detailing visits on prescribing behavior in Q3 2025",
+    ],
+  },
+  {
+    category: "Forecast",
+    color: "#34c98b",
+    prompts: [
+      "Forecast Rx volume for Pembrolizumab for the next 13 weeks",
+      "Predict monthly claims for specialty plans in H1 2026",
+    ],
+  },
+  {
+    category: "Clustering",
+    color: "#fb923c",
+    prompts: [
+      "Segment physicians into 4 clusters based on prescribing patterns in 2025",
+      "Identify patient cohorts by drug utilization and plan type",
+    ],
+  },
+];
+
 export default function ChatHome() {
   const router = useRouter();
-  const { threads } = useChatHistory();
-  const recentThreads = threads.slice(0, 5);
 
-  // null until hydrated — prevents server/client mismatch on Vercel (server runs UTC)
-  const [greeting, setGreeting] = useState<string | null>(null);
-  useEffect(() => {
-    setGreeting(getGreeting(new Date().getHours()));
-  }, []);
-
-  const handleSubmit = (query: string) => {
+  const handleSubmit = useCallback((query: string) => {
     const id = newThreadId();
-    // Stash the first query so the thread page can fire it immediately
     sessionStorage.setItem(`pendingQuery:${id}`, query);
     router.push(`/chat/${id}`);
-  };
+  }, [router]);
 
-  const handlePlan = (query: string) => {
+  const handlePlan = useCallback((query: string) => {
     const id = newThreadId();
-    // Stash as a pending plan so the thread page calls handlePlan instead of handleSubmit
     sessionStorage.setItem(`pendingPlan:${id}`, query);
     router.push(`/chat/${id}`);
-  };
-
-  // ⌘K / Ctrl+K — focus the chat textarea
-  const focusChatInput = useCallback(() => {
-    (document.querySelector("textarea") as HTMLTextAreaElement | null)?.focus();
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        focusChatInput();
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [focusChatInput]);
+  }, [router]);
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "var(--bg-primary)" }}>
-      {/* Center content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
-        {/* Greeting */}
-        <div className="text-center">
-          <p className="text-2xl font-medium mb-1" style={{ color: "var(--text-primary)", minHeight: "1.75rem" }}>
-            {greeting}
-          </p>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            What would you like to analyze?
-          </p>
+    <div className="relative flex flex-col h-full" style={{ background: BG }}>
+      {/* Noise texture */}
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: GRAIN_URL, backgroundRepeat: "repeat", backgroundSize: "200px 200px", opacity: 0.22, pointerEvents: "none", zIndex: 0 }} />
+
+      {/* Content — masthead at top, prompt bar at bottom */}
+      <div className="relative z-10 flex flex-col h-full px-6 pt-4">
+
+        {/* Masthead */}
+        <div style={{ borderTop: `3px double ${INK}`, paddingTop: "5px" }}>
+          <div style={{ borderTop: `1px solid ${INK}`, paddingTop: "4px", paddingBottom: "4px", textAlign: "center" }}>
+            <span style={{ fontFamily: "var(--font-nunito-sans), system-ui, sans-serif", fontSize: "12px", fontWeight: 800, letterSpacing: "0.38em", textTransform: "uppercase", color: INK }}>
+              Ask
+            </span>
+          </div>
+          <div style={{ borderTop: `1px solid ${INK}` }} />
         </div>
 
-        {/* Recent analyses */}
-        {recentThreads.length > 0 && (
-          <div className="w-full max-w-4xl">
-            <div
-              className="px-1 py-2 flex items-center gap-2 text-xs font-medium mb-2"
-              style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}
-            >
-              <Clock size={12} />
-              Recent Analyses
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {recentThreads.map((t) => (
-                <Link
-                  key={t.id}
-                  href={`/chat/${t.id}`}
-                  className="flex items-center gap-3 px-4 py-3 rounded-lg transition-colors hover:opacity-80"
-                  style={{ background: "var(--bg-secondary)" }}
-                >
-                  <Clock size={14} className="shrink-0" style={{ color: "var(--text-muted)" }} />
-                  <span className="text-sm flex-1 truncate" style={{ color: "var(--text-primary)" }}>
-                    {t.title}
-                  </span>
-                  <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
-                    {t.date}
-                  </span>
-                </Link>
-              ))}
-            </div>
+        {/* Suggested prompts — fills remaining space */}
+        <div className="flex-1 overflow-auto py-6">
+          <div className="max-w-3xl mx-auto grid grid-cols-2 gap-3">
+            {SUGGESTED_PROMPTS.map(({ category, color, prompts }) => (
+              <div key={category} className="flex flex-col gap-2 p-4 rounded-xl"
+                style={{ background: "#ffffff", border: `1px solid ${INK}12` }}>
+                <p className="text-xs font-bold uppercase tracking-widest mb-1"
+                  style={{ color, letterSpacing: "0.14em", fontFamily: "var(--font-nunito-sans), system-ui, sans-serif" }}>
+                  {category}
+                </p>
+                {prompts.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => handleSubmit(p)}
+                    className="text-left text-sm leading-snug hover:underline transition-colors"
+                    style={{ color: INK, fontFamily: "var(--font-nunito-sans), system-ui, sans-serif", fontWeight: 500 }}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            ))}
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* Chat input pinned to bottom */}
-      <div className="px-6 pb-6 max-w-4xl w-full mx-auto">
-        <ChatInput
-          placeholder="Ask a question about your data…"
-          onSubmit={handleSubmit}
-          onPlan={handlePlan}
-          autoFocus
-        />
+        {/* Prompt bar — pinned to bottom */}
+        <div className="pb-6 max-w-3xl mx-auto w-full">
+          <ChatInput
+            placeholder="Ask your question…"
+            onSubmit={handleSubmit}
+            onPlan={handlePlan}
+            autoFocus
+          />
+        </div>
       </div>
     </div>
   );

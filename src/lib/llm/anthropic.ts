@@ -232,6 +232,31 @@ export async function decomposeIntoPipeline(params: {
 }
 
 // ---------------------------------------------------------------------------
+// buildSynthesisSystemPrompt — pure helper, exported for testing
+// ---------------------------------------------------------------------------
+
+export function buildSynthesisSystemPrompt(customInstructions?: string): string {
+  return [
+    'You are an expert business intelligence analyst writing executive summaries.',
+    'Produce a concise, insightful markdown report that directly answers the user question.',
+    'Use headers, bullet points, and bold text for key metrics.',
+    'Do not include raw SQL in the narrative. Do not repeat the question verbatim.',
+    '',
+    'Multi-source synthesis rules:',
+    '  - [Rx Data]: claims analytics from the data engine (TRx, NBRx, market share, trend)',
+    '  - [News N]: recent pharma news articles — cite as [News 1], [News 2], etc.',
+    '  - [doc: filename]: internal research documents — cite as [doc: filename, p.N]',
+    '  When sources address the same topic, state whether they agree or conflict:',
+    '    Agreement: "Both [Rx Data] and [News 1] confirm that..."',
+    '    Conflict: "⚠️ Source conflict: [News 2] reports X, but [Rx Data] shows Y — verify."',
+    '  Cite the source type for every key claim in the summary.',
+    customInstructions ? `\nAdditional instructions:\n${customInstructions}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // synthesizeNarrative
 // ---------------------------------------------------------------------------
 
@@ -247,15 +272,7 @@ export async function synthesizeNarrative(params: {
 }): Promise<string> {
   const { userQuestion, results, customInstructions } = params;
 
-  const systemPrompt = [
-    'You are an expert business intelligence analyst writing executive summaries.',
-    'Produce a concise, insightful markdown report that directly answers the user question.',
-    'Use headers, bullet points, and bold text for key metrics.',
-    'Do not include raw SQL in the narrative. Do not repeat the question verbatim.',
-    customInstructions ? `\nAdditional instructions:\n${customInstructions}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const systemPrompt = buildSynthesisSystemPrompt(customInstructions);
 
   const agentSummaries = results
     .map((r, i) => {
@@ -446,57 +463,137 @@ export async function generatePlan(params: {
 // generateStoryReport
 // ---------------------------------------------------------------------------
 
+export interface StoryReportNewsItem {
+  title:       string;
+  url:         string;
+  source:      string;
+  publishedAt: string;
+  summary:     string | null;
+  drugNames:   string[];
+  weight:      number;
+}
+
+export interface StoryReportDocumentChunk {
+  docName:      string;
+  fileType:     string;
+  pageNumber:   number;
+  sectionLabel: string | null;
+  chunkText:    string;
+  therapyArea:  string | null;
+  brand:        string | null;
+}
+
 export interface StoryReport {
   title: string;
   executiveSummary: string;
   keyFindings: string[];
   sections: Array<{ heading: string; body: string }>;
   recommendations: string[];
+  marketIntelligence: StoryReportNewsItem[];
+  documentSources: StoryReportDocumentChunk[];
   methodology: string;
   agentsUsed: string[];
 }
 
-/**
- * Converts a series of agent analysis results into a structured executive
- * report suitable for C-suite stakeholders. Returns a JSON-shaped report
- * that can be rendered in the Story Mode modal and exported to PDF / PPTX.
- */
-export async function generateStoryReport(params: {
-  threadTitle: string;
-  agentResults: Array<{ agentName: string; narrative: string }>;
-}): Promise<StoryReport> {
-  const { threadTitle, agentResults } = params;
+// ---------------------------------------------------------------------------
+// buildStoryReportSystemPrompt — pure helper, exported for testing
+// ---------------------------------------------------------------------------
 
-  const systemPrompt = [
-    'You are an expert business intelligence analyst writing executive reports for pharma/life sciences stakeholders.',
-    'Given a series of AI-generated analysis results from different analytical agents, produce a comprehensive executive report.',
+export function buildStoryReportSystemPrompt(
+  newsItems: StoryReportNewsItem[],
+  documentChunks: StoryReportDocumentChunk[],
+  userQuestions: string[],
+): string {
+  const newsContext = newsItems.length > 0
+    ? [
+        '',
+        'MARKET INTELLIGENCE (recent pharma news — curated, top items only):',
+        ...newsItems.map((n, i) =>
+          `[${i + 1}] "${n.title}" — ${n.source} (${n.publishedAt.slice(0, 10)})` +
+          (n.drugNames.length ? ` | Drugs: ${n.drugNames.join(', ')}` : ''),
+        ),
+        '',
+        'Reference these articles only where they add genuine insight to the analysis.',
+      ].join('\n')
+    : '';
+
+  const documentsContext = documentChunks.length > 0
+    ? [
+        '',
+        'INTERNAL RESEARCH DOCUMENTS (uploaded pharma reports — cite these directly):',
+        ...documentChunks.map((c, i) =>
+          `[${i + 1}] [doc: ${c.docName}, p.${c.pageNumber}${c.sectionLabel ? ', ' + c.sectionLabel : ''}]` +
+          (c.therapyArea ? ` | TA: ${c.therapyArea}` : '') +
+          (c.brand ? ` | Brand: ${c.brand}` : '') +
+          `\n    "${c.chunkText.slice(0, 300)}..."`,
+        ),
+        '',
+        'When citing these documents use the exact format: [doc: filename, p.N, section]',
+      ].join('\n')
+    : '';
+
+  const questionsBlock = userQuestions.length > 0
+    ? [
+        '',
+        'The user\'s analytical questions (in order) were:',
+        ...userQuestions.map((q, i) => `  ${i + 1}. ${q}`),
+        '',
+        'CRITICAL: The executive brief must directly answer these questions. Identify the PRIMARY intent (usually the first substantive question) and frame the entire report around it.',
+      ].join('\n')
+    : '';
+
+  return [
+    'You are an expert business intelligence analyst writing executive briefs for pharma/life sciences C-suite stakeholders.',
+    questionsBlock,
+    newsContext,
+    documentsContext,
     '',
     'Return a JSON object with this exact shape (no markdown fences, no explanation):',
     '{',
-    '  "title": "<concise executive report title derived from the analysis>",',
-    '  "executiveSummary": "<2-3 paragraph executive summary covering the overall narrative and business impact>",',
-    '  "keyFindings": ["<specific metric-driven finding>", ...],',
-    '  "sections": [{ "heading": "<section title>", "body": "<detailed 1-3 paragraph analysis>" }, ...],',
-    '  "recommendations": ["<concrete, measurable action>", ...],',
-    '  "methodology": "<brief description of analytical methods and data sources used>",',
+    '  "title": "<concise title that captures the primary analytical question and key finding>",',
+    '  "executiveSummary": "<2-3 paragraph summary>",',
+    '  "keyFindings": ["<specific metric-driven finding with numbers where available>", ...],',
+    '  "sections": [{ "heading": "<section title>", "body": "<1-2 paragraph analysis>" }, ...],',
+    '  "recommendations": ["<concrete, measurable action with owner and timeframe where possible>", ...],',
+    '  "methodology": "<one sentence: which analytical methods were used and why>",',
     '  "agentsUsed": ["<agent name>", ...]',
     '}',
     '',
     'Guidelines:',
-    '  1. Write for C-suite and senior commercial leadership — clear, decisive, action-oriented.',
-    '  2. Extract specific metrics and figures from the analyses — avoid generalities.',
-    '  3. Each section in "sections" maps to a distinct analytical result or insight cluster.',
-    '  4. Produce 5–7 keyFindings and 3–5 recommendations.',
-    '  5. Recommendations must be concrete and measurable — not vague suggestions.',
-    '  6. Use pharma/life sciences business terminology where appropriate (TRx, NBRx, market share, etc.).',
-    '  7. Respond with valid JSON only.',
+    '  1. Synthesise ALL analyses into a single coherent narrative — not a list of separate summaries.',
+    '  2. The primary analytical question must be answered directly in executiveSummary paragraph 2.',
+    '  3. Frame the title and opening around the BUSINESS OBJECTIVE, not operational constraints.',
+    '  4. Extract specific metrics and figures — avoid vague generalities.',
+    '  5. Produce 4–6 keyFindings focused on commercial insights.',
+    '  6. Recommendations must be concrete — include suggested next steps, not just observations.',
+    '  7. Use pharma/life sciences terminology (TRx, NBRx, market share, HCP, pull-through, etc.).',
+    '  8. Respond with valid JSON only.',
+    '  9. When internal research documents are provided, integrate their findings and cite them using [doc: filename, p.N] format. Synthesise across [Rx Data], [News N], and [doc: filename] into one unified narrative.',
+    '  10. Explicitly flag source agreements and conflicts: use "Both [Rx Data] and [doc: filename] confirm..." for agreements, and "⚠️ Source conflict: [News N] reports X, but [Rx Data] shows Y." for discrepancies.',
+    '  11. Every key claim must be traceable to a source type: [Rx Data] for analytics engine data, [News N] for news articles, [doc: filename] for internal research documents.',
   ].join('\n');
+}
+
+/**
+ * Converts a full chat thread into a structured executive report that
+ * addresses the user's primary analytical intent across all exchanges.
+ */
+export async function generateStoryReport(params: {
+  threadTitle:     string;
+  agentResults:    Array<{ agentName: string; narrative: string }>;
+  userQuestions?:  string[];
+  newsItems?:      StoryReportNewsItem[];
+  documentChunks?: StoryReportDocumentChunk[];
+}): Promise<StoryReport> {
+  const { threadTitle, agentResults, userQuestions = [], newsItems = [], documentChunks = [] } = params;
+
+  const systemPrompt = buildStoryReportSystemPrompt(newsItems, documentChunks, userQuestions);
 
   const agentSummaries = agentResults
-    .map((r, i) => `--- Analysis ${i + 1}: ${r.agentName} ---\n${r.narrative}`)
+    .map((r, i) => `--- Result ${i + 1}: ${r.agentName} ---\n${r.narrative}`)
     .join('\n\n');
 
-  const userContent = `Thread context: "${threadTitle}"\n\nAnalysis results:\n${agentSummaries}`;
+  const userContent = `Session: "${threadTitle}"\n\nFull analysis results:\n${agentSummaries}`;
 
   const response = await client.messages.create({
     model: MODEL,
@@ -524,12 +621,73 @@ export async function generateStoryReport(params: {
 
   const obj = parsed as Record<string, unknown>;
   return {
-    title:            typeof obj.title === 'string'            ? obj.title            : threadTitle,
-    executiveSummary: typeof obj.executiveSummary === 'string' ? obj.executiveSummary : '',
-    keyFindings:      Array.isArray(obj.keyFindings)           ? (obj.keyFindings as string[]) : [],
-    sections:         Array.isArray(obj.sections)              ? (obj.sections as StoryReport['sections']) : [],
-    recommendations:  Array.isArray(obj.recommendations)       ? (obj.recommendations as string[]) : [],
-    methodology:      typeof obj.methodology === 'string'      ? obj.methodology      : '',
-    agentsUsed:       Array.isArray(obj.agentsUsed)            ? (obj.agentsUsed as string[]) : [],
+    title:              typeof obj.title === 'string'            ? obj.title            : threadTitle,
+    executiveSummary:   typeof obj.executiveSummary === 'string' ? obj.executiveSummary : '',
+    keyFindings:        Array.isArray(obj.keyFindings)           ? (obj.keyFindings as string[])               : [],
+    sections:           Array.isArray(obj.sections)              ? (obj.sections as StoryReport['sections'])   : [],
+    recommendations:    Array.isArray(obj.recommendations)       ? (obj.recommendations as string[])           : [],
+    marketIntelligence: newsItems,
+    documentSources:    documentChunks,
+    methodology:        typeof obj.methodology === 'string'      ? obj.methodology      : '',
+    agentsUsed:         Array.isArray(obj.agentsUsed)            ? (obj.agentsUsed as string[])                : [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// generateSmartFollowups
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates 3–4 contextually intelligent follow-up questions based on the
+ * full conversation so far.
+ */
+export async function generateSmartFollowups(params: {
+  userQuestions:     string[];
+  lastAgentResponse: string;
+  agentsRun:         string[];
+}): Promise<string[]> {
+  const { userQuestions, lastAgentResponse, agentsRun } = params;
+
+  const system = [
+    'You are an expert pharma/life sciences analytics advisor.',
+    'Based on a data analysis conversation, suggest 3–4 intelligent follow-up questions the user should ask next.',
+    '',
+    'Rules:',
+    '  - Each suggestion must be a complete, specific, actionable question.',
+    '  - Build on what has already been found — do not repeat what was already asked.',
+    '  - Suggest the most logical analytical next step (e.g. if they saw a trend, suggest drilling into drivers; if they saw drivers, suggest forecasting).',
+    '  - Questions should reference specific products, markets, or metrics mentioned in the analysis.',
+    '  - Vary the analytical depth: include one deeper dive, one competitive comparison, and one forward-looking question.',
+    '  - Return ONLY a JSON array of strings, no other text.',
+  ].join('\n');
+
+  const userContent = [
+    `Agents run: ${agentsRun.join(', ')}`,
+    '',
+    `User questions asked:\n${userQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`,
+    '',
+    `Last agent response:\n${lastAgentResponse}`,
+  ].join('\n');
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 500,
+    temperature: 0.4,
+    system,
+    messages: [{ role: 'user', content: userContent }],
+  });
+
+  const firstBlock = response.content[0];
+  if (firstBlock.type !== 'text') return [];
+
+  try {
+    const cleaned = firstBlock.text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
 }

@@ -121,6 +121,7 @@ describe("Snowflake Persistence", () => {
         embeddings: [],
         status: "extracted",
         error: null,
+        errorDetails: undefined,
       };
 
       (mockClient.executeQuery as any).mockResolvedValue({ rows: [] });
@@ -154,6 +155,7 @@ describe("Snowflake Persistence", () => {
         embeddings: [null],
         status: "extracted",
         error: null,
+        errorDetails: undefined,
       };
 
       await persistDocument(state, mockClient);
@@ -179,6 +181,7 @@ describe("Snowflake Persistence", () => {
         embeddings: [],
         status: "extracted",
         error: null,
+        errorDetails: undefined,
       };
 
       (mockClient.executeQuery as any).mockRejectedValue(
@@ -290,6 +293,7 @@ describe("Snowflake Persistence", () => {
         embeddings: [],
         status: "extracted",
         error: null,
+        errorDetails: undefined,
       };
 
       // First call returns a row (duplicate found)
@@ -326,6 +330,7 @@ describe("Snowflake Persistence", () => {
         embeddings: [null],
         status: "extracted",
         error: null,
+        errorDetails: undefined,
       };
 
       // Mock no duplicates found, then successful persistence

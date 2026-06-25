@@ -53,21 +53,18 @@ export default function ResizableLayout({ children }: { children: ReactNode }) {
 
   return (
     <ChatHistoryProvider>
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden" style={{ background: "#F5F5F5" }}>
         {/* Rail */}
         <div style={{ width: effectiveWidth, transition: "width 0.18s ease" }} className="shrink-0 overflow-hidden relative">
           <LeftRail collapsed={collapsed} narrow={narrow} onToggleCollapse={() => setCollapsed((v) => !v)} />
         </div>
 
-        {/* Invisible drag handle — shows col-resize cursor on hover */}
+        {/* Drag handle — invisible, no background */}
         <div
           ref={handleRef}
           onMouseDown={onMouseDown}
-          className="w-2 shrink-0 hover:bg-black/8 transition-colors"
-          style={{
-            cursor: collapsed ? "default" : "col-resize",
-            background: "transparent",
-          }}
+          className="w-1 shrink-0"
+          style={{ cursor: collapsed ? "default" : "col-resize", background: "transparent" }}
         />
 
         <main className="flex-1 overflow-hidden">{children}</main>
