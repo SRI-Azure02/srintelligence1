@@ -69,7 +69,8 @@ export async function POST(request: NextRequest) {
 
     // Persist to Snowflake via the persistence layer
     try {
-      await completeIngestion(finalState, userId);
+      // await completeIngestion(finalState, userId);
+      await completeIngestion(finalState); 
     } catch (persistError) {
       console.warn(`Snowflake persistence warning (continuing with extracted state): ${persistError}`);
       // Fail-open: ingestion succeeded even if persistence fails
